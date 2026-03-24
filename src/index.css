@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* ── Design tokens (dark theme — default) ─────────────────────────────────── */
+@theme {
+  --color-app-base: #0d1117;
+  --color-app-surface: #161b22;
+  --color-app-surface-2: #21262d;
+  --color-app-border: #30363d;
+  --color-app-text: #e6edf3;
+  --color-app-muted: #7d8590;
+  --color-app-accent: #2f81f7;
+  --color-app-accent-hover: #388bfd;
+
+  --color-key-green: #3fb950;
+  --color-key-yellow: #d29922;
+  --color-key-blue: #58a6ff;
+  --color-key-red: #f85149;
+}
+
+/* ── Light theme overrides ────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --color-app-base: #ffffff;
+  --color-app-surface: #f6f8fa;
+  --color-app-surface-2: #eaeef2;
+  --color-app-border: #d0d7de;
+  --color-app-text: #1f2328;
+  --color-app-muted: #636e7b;
+  --color-app-accent: #0969da;
+  --color-app-accent-hover: #0860ca;
+
+  --color-key-green: #1a7f37;
+  --color-key-yellow: #9a6700;
+  --color-key-blue: #0550ae;
+  --color-key-red: #cf222e;
+}
+
+/* ── Solarized Light theme ────────────────────────────────────────────────── */
+/* Palette: Ethan Schoonover's Solarized — warm cream paper tones             */
+[data-theme="solarized-light"] {
+  --color-app-base:         #fdf6e3;  /* Base3  — paper */
+  --color-app-surface:      #eee8d5;  /* Base2  — card */
+  --color-app-surface-2:    #e4dece;  /* Base2- — input / hover */
+  --color-app-border:       #d5cfbf;  /* derived warm border */
+  --color-app-text:         #657b83;  /* Base00 — primary text */
+  --color-app-muted:        #93a1a1;  /* Base1  — secondary text */
+  --color-app-accent:       #268bd2;  /* Blue */
+  --color-app-accent-hover: #1a7ab8;
+
+  --color-key-green:        #859900;
+  --color-key-yellow:       #b58900;
+  --color-key-blue:         #268bd2;
+  --color-key-red:          #dc322f;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-app-base);
+  color: var(--color-app-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbars ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-app-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-app-muted);
+}

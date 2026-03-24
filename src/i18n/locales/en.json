@@ -1,0 +1,146 @@
+{
+  "app": {
+    "name": "Lingoa",
+    "tagline": "Translate GitHub repositories collaboratively"
+  },
+
+  "nav": {
+    "home": "Home",
+    "editor": "Editor",
+    "review": "Review",
+    "settings": "Settings"
+  },
+
+  "auth": {
+    "title": "Connect your GitHub account",
+    "description": "A Personal Access Token is stored locally in your OS keychain. It never leaves your device.",
+    "tokenLabel": "Personal Access Token",
+    "tokenPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxx",
+    "verifying": "Verifying\u2026",
+    "connect": "Connect",
+    "requiredScopes": "Required scopes:",
+    "scopePrivate": "for private repos",
+    "scopePublic": "for public only",
+    "skip": "Skip for now",
+    "skipHint": "Local translation only — PR creation will be unavailable"
+  },
+
+  "home": {
+    "openFolder": "Open Repository Folder",
+    "openFolderHint": "Open a locally cloned GitHub repository",
+    "recent": "Recent",
+    "changeFolder": "Change folder",
+    "noRemoteWarning": "No GitHub remote detected. You can still translate locally \u2014 PR creation will be unavailable.",
+    "prsTarget": "PRs target:",
+    "change": "change",
+    "i18nFiles": "i18n files",
+    "addManually": "+ Add files manually",
+    "noFilesFound": "No i18n files detected automatically. Use the button above to select them.",
+    "noFilesPatterns": "Expected patterns:",
+    "scanningRepo": "Scanning repository\u2026",
+    "translateFrom": "Translate from",
+    "translateTo": "Translate to",
+    "selectTarget": "\u2014 Select target language \u2014",
+    "newLocale": "+ New locale\u2026",
+    "newLocalePlaceholder": "e.g. pt-BR, zh-CN, ar",
+    "startTranslating": "Start Translating",
+    "starting": "Loading\u2026",
+    "keys": "{{n}} keys",
+    "countingKeys": "counting\u2026",
+    "upstreamPlaceholder": "owner/repo (upstream)",
+    "set": "Set"
+  },
+
+  "editor": {
+    "noRepo": "No repo",
+    "loadingPRs": "PRs\u2026",
+    "switching": "Loading\u2026",
+    "prCreated": "PR created!",
+    "viewOnGitHub": "View on GitHub \u2192",
+    "keysTranslated": "{{translated}}/{{total}} keys translated",
+    "creatingPR": "Creating PR\u2026",
+    "submitPR": "Submit PR",
+    "noRemoteLocal": "No GitHub remote \u2014 changes saved locally only.",
+    "position": "{{current}} / {{total}}",
+    "sourceString": "Source string",
+    "context": "Context",
+    "selectKeyPrompt": "Select a key from the sidebar to start translating",
+    "enterTranslation": "Enter translation\u2026",
+    "selectKeyShort": "Select a key from the sidebar",
+    "saveAndNextHint": "save & next",
+    "save": "Save",
+    "proposals": "Other proposals",
+    "yours": "yours"
+  },
+
+  "keyList": {
+    "searchPlaceholder": "Search keys or strings\u2026",
+    "filters": {
+      "all": "All",
+      "todo": "Todo",
+      "review": "Review",
+      "mine": "Mine",
+      "done": "Done"
+    },
+    "progress": "{{translated}}/{{total}} translated",
+    "noKeysSearch": "No keys match your search",
+    "noKeysCategory": "No keys in this category"
+  },
+
+  "keyItem": {
+    "states": {
+      "translated": "Translated",
+      "ownPending": "Your pending PR",
+      "otherPending": "Pending by another translator",
+      "untranslated": "Untranslated"
+    }
+  },
+
+  "review": {
+    "sidebarTitle": "Open Translation PRs",
+    "openCount": "{{n}} open",
+    "loadingPRs": "Loading PRs\u2026",
+    "noPRs": "No open translation PRs found",
+    "selectPrompt": "Select a PR to review",
+    "viewOnGitHub": "View on GitHub \u2192",
+    "loadingTranslations": "Loading translations\u2026",
+    "noKeys": "No translatable keys found in this PR",
+    "colKey": "Key",
+    "colSource": "Source",
+    "colTranslation": "Translation",
+    "approve": "Approve",
+    "comment": "Comment",
+    "requestChanges": "Request Changes",
+    "requestChangesPlaceholder": "Describe what needs to change\u2026 (required)",
+    "commentPlaceholder": "Leave a comment\u2026 (optional)",
+    "submitReview": "Submit Review",
+    "submitting": "Submitting\u2026",
+    "requiresComment": "A comment is required when requesting changes",
+    "ownPRNotice": "You cannot review your own PR.",
+    "reviewSubmitted": "Review submitted!",
+    "draft": "Draft",
+    "you": "(you)"
+  },
+
+  "settings": {
+    "title": "Settings",
+    "account": "Account",
+    "appearance": "Appearance",
+    "editor": "Editor",
+    "githubAccount": "GitHub account",
+    "changeToken": "Change token",
+    "signOut": "Sign out",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saving": "Saving\u2026",
+    "theme": "Theme",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeSystem": "System",
+    "language": "Language",
+    "spellcheck": "Spellcheck on by default",
+    "spellcheckDesc": "Show browser spellcheck underlines in the translation textarea",
+    "autoSave": "Auto-save when switching keys",
+    "autoSaveDesc": "Automatically save the current translation when clicking another key"
+  }
+}
