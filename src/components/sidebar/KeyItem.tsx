@@ -11,10 +11,11 @@ const STATE_COLORS: Record<KeyState, string> = {
 interface Props {
   item: TranslationKeyWithState;
   isSelected: boolean;
+  isGrouped?: boolean;
   onClick: () => void;
 }
 
-export default function KeyItem({ item, isSelected, onClick }: Props) {
+export default function KeyItem({ item, isSelected, isGrouped = false, onClick }: Props) {
   const t = useT();
 
   const STATE_TITLES: Record<KeyState, string> = {
@@ -26,11 +27,17 @@ export default function KeyItem({ item, isSelected, onClick }: Props) {
 
   const displayText = item.editorTranslation || item.source || item.key;
 
+  // Inside an accordion group, show only the leaf portion of the key (after first dot)
+  const dotIdx = item.key.indexOf(".");
+  const leafKey = isGrouped && dotIdx !== -1 ? item.key.slice(dotIdx + 1) : item.key;
+
   return (
     <button
       data-selected={isSelected}
       onClick={onClick}
-      className={`w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors group ${
+      className={`w-full h-full flex items-start gap-2.5 text-left transition-colors group ${
+        isGrouped ? "pl-6 pr-3 py-2" : "px-3 py-2"
+      } ${
         isSelected
           ? "bg-app-accent/20 text-app-text"
           : "hover:bg-app-surface-2 text-app-muted hover:text-app-text"
@@ -43,11 +50,13 @@ export default function KeyItem({ item, isSelected, onClick }: Props) {
       />
 
       <span className="flex-1 min-w-0">
-        <span className={`block text-xs truncate leading-tight ${isSelected ? "text-app-text" : ""}`}>
+        <span
+          className={`block text-xs truncate leading-tight ${isSelected ? "text-app-text" : ""}`}
+        >
           {displayText}
         </span>
         <span className="block font-mono text-xs text-app-muted/60 truncate mt-0.5">
-          {item.key}
+          {leafKey}
         </span>
       </span>
 

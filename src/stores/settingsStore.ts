@@ -26,13 +26,11 @@ interface SettingsState {
   theme: Theme;
   language: Language;
   spellCheckDefault: boolean;
-  autoSaveOnSwitch: boolean;
 
   loadSettings: () => void;
   setTheme: (theme: Theme) => void;
   setLanguage: (lang: Language) => void;
   setSpellCheckDefault: (v: boolean) => void;
-  setAutoSaveOnSwitch: (v: boolean) => void;
 }
 
 const STORAGE_KEY = "lingoa:settings";
@@ -66,26 +64,31 @@ export function applyTheme(theme: Theme) {
   }
 }
 
-function load(): Partial<SettingsState> {
+function load(): Partial<Pick<SettingsState, "theme" | "language" | "spellCheckDefault">> {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    const raw: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    if (typeof raw !== "object" || raw === null) return {};
+    const r = raw as Record<string, unknown>;
+    // Only accept known primitive keys — never let stored data overwrite store methods.
+    const safe: Partial<Pick<SettingsState, "theme" | "language" | "spellCheckDefault">> = {};
+    if (typeof r.theme === "string") safe.theme = r.theme as Theme;
+    if (typeof r.language === "string") safe.language = r.language as Language;
+    if (typeof r.spellCheckDefault === "boolean") safe.spellCheckDefault = r.spellCheckDefault;
+    return safe;
   } catch {
     return {};
   }
 }
 
 function save(state: SettingsState) {
-  const { theme, language, spellCheckDefault, autoSaveOnSwitch } = state;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
-    theme, language, spellCheckDefault, autoSaveOnSwitch,
-  }));
+  const { theme, language, spellCheckDefault } = state;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme, language, spellCheckDefault }));
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   theme: "dark",
   language: "en",
   spellCheckDefault: false,
-  autoSaveOnSwitch: false,
 
   loadSettings: () => {
     const saved = load();
@@ -108,10 +111,5 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSpellCheckDefault: (spellCheckDefault) => {
     set({ spellCheckDefault });
     save({ ...get(), spellCheckDefault });
-  },
-
-  setAutoSaveOnSwitch: (autoSaveOnSwitch) => {
-    set({ autoSaveOnSwitch });
-    save({ ...get(), autoSaveOnSwitch });
   },
 }));

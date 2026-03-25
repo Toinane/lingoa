@@ -1,7 +1,20 @@
 {
   "name": "lingoa",
+  "description": "Lingoa is a desktop app that helps you translate git projects in your native language. Connect your GitHub account, select a repository, and start translating.",
+  "author": "Toinane",
+  "bugs": "https://github.com/Toinane/lingoa/issues",
+  "homepage": "https://github.com/Toinane/lingoa",
   "version": "0.1.0",
   "type": "module",
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
+  "engines": {
+    "node": ">=24",
+    "rustc": ">=1.70.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -9,11 +22,9 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@octokit/rest": "^21.0.0",
     "@tanstack/react-virtual": "^3.13.23",
     "@tauri-apps/api": "^2.1.0",
     "@tauri-apps/plugin-dialog": "^2.1.0",
-    "js-yaml": "^4.1.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "zustand": "^5.0.0"
@@ -21,7 +32,6 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
     "@tauri-apps/cli": "^2.1.0",
-    "@types/js-yaml": "^4.0.9",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import KeyList from "../components/sidebar/KeyList";
 import TranslationEditor from "../components/editor/TranslationEditor";
 import { useEditorStore } from "../stores/editorStore";
@@ -6,10 +6,22 @@ import { useRepoStore } from "../stores/repoStore";
 import { useAuthStore } from "../stores/authStore";
 import { usePRStore } from "../stores/prStore";
 import { getTargetLocales } from "../lib/discovery";
+import { buildBranchName } from "../lib/git";
+import { openExternal } from "../lib/tauri";
 import { useT, interp } from "../i18n";
 
 export default function EditorView() {
-  const { submitPR, keys, loadEditor, sourceFile, targetLocale, saveCurrentKey, saveAndNext, nextKey, prevKey } = useEditorStore();
+  const {
+    submitPR,
+    keys,
+    loadEditor,
+    sourceFile,
+    targetLocale,
+    saveCurrentKey,
+    saveAndNext,
+    nextKey,
+    prevKey,
+  } = useEditorStore();
   const { repoInfo, files, repoPath } = useRepoStore();
   const { isLoading: prLoading } = usePRStore();
   const currentUser = useAuthStore((s) => s.currentUser);
@@ -17,7 +29,31 @@ export default function EditorView() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [prUrl, setPrUrl] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [showPRConfirm, setShowPRConfirm] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = localStorage.getItem("lingoa-sidebar-width");
+    return stored ? parseInt(stored, 10) : 288;
+  });
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      let w = sidebarWidth;
+      const onMove = (ev: MouseEvent) => {
+        w = Math.min(Math.max(ev.clientX, 180), 520);
+        setSidebarWidth(w);
+      };
+      const onUp = () => {
+        localStorage.setItem("lingoa-sidebar-width", String(w));
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [sidebarWidth],
+  );
 
   // Global keyboard shortcuts — work anywhere in the editor, except search/select inputs
   useEffect(() => {
@@ -79,6 +115,7 @@ export default function EditorView() {
     try {
       const url = await submitPR();
       setPrUrl(url);
+      setShowPRConfirm(false);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Failed to create PR");
     } finally {
@@ -89,7 +126,10 @@ export default function EditorView() {
   return (
     <div className="flex h-full">
       {/* Sidebar */}
-      <aside className="w-72 bg-app-surface border-r border-app-border flex flex-col shrink-0">
+      <aside
+        className="bg-app-surface flex flex-col shrink-0"
+        style={{ width: sidebarWidth }}
+      >
         {/* Sidebar header — file + locale selectors */}
         <div className="px-3 pt-2.5 pb-2 border-b border-app-border shrink-0 space-y-1.5">
           {/* File selector */}
@@ -126,17 +166,23 @@ export default function EditorView() {
                   <option value={targetLocale}>{targetLocale}</option>
                 )}
                 {targetLocales.map((l) => (
-                  <option key={l} value={l}>{l}</option>
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
                 ))}
               </select>
               {prLoading && (
-                <span className="text-app-muted text-xs animate-pulse shrink-0">{t.editor.loadingPRs}</span>
+                <span className="text-app-muted text-xs animate-pulse shrink-0">
+                  {t.editor.loadingPRs}
+                </span>
               )}
             </div>
           )}
 
           {isSwitching && (
-            <div className="text-app-muted text-xs animate-pulse">{t.editor.switching}</div>
+            <div className="text-app-muted text-xs animate-pulse">
+              {t.editor.switching}
+            </div>
           )}
         </div>
 
@@ -149,46 +195,137 @@ export default function EditorView() {
         <div className="p-3 border-t border-app-border shrink-0">
           {prUrl ? (
             <div className="text-center">
-              <p className="text-key-green text-xs mb-1">{t.editor.prCreated}</p>
-              <a
-                href={prUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <p className="text-key-green text-xs mb-1">
+                {t.editor.prCreated}
+              </p>
+              <button
+                onClick={() => prUrl && openExternal(prUrl)}
                 className="text-app-accent text-xs hover:underline"
               >
                 {t.editor.viewOnGitHub}
-              </a>
+              </button>
             </div>
+          ) : repoInfo && currentUser ? (
+            <button
+              onClick={() => setShowPRConfirm(true)}
+              disabled={translatedCount === 0}
+              className="w-full bg-key-green/90 hover:bg-key-green disabled:opacity-40 disabled:cursor-not-allowed text-black text-xs font-semibold py-2 px-3 rounded-md transition-colors"
+            >
+              {t.editor.submitPR}
+            </button>
           ) : (
-            <>
-              <div className="text-app-muted text-xs mb-2 text-center">
-                {interp(t.editor.keysTranslated, { translated: translatedCount, total: totalCount })}
-              </div>
-              {submitError && (
-                <p className="text-key-red text-xs mb-2">{submitError}</p>
-              )}
-              {repoInfo && currentUser ? (
-                <button
-                  onClick={handleSubmitPR}
-                  disabled={isSubmitting || translatedCount === 0}
-                  className="w-full bg-key-green/90 hover:bg-key-green disabled:opacity-40 disabled:cursor-not-allowed text-black text-xs font-semibold py-2 px-3 rounded-md transition-colors"
-                >
-                  {isSubmitting ? t.editor.creatingPR : t.editor.submitPR}
-                </button>
-              ) : (
-                <p className="text-app-muted text-xs text-center">
-                  {t.editor.noRemoteLocal}
-                </p>
-              )}
-            </>
+            <p className="text-app-muted text-xs text-center">
+              {t.editor.noRemoteLocal}
+            </p>
           )}
         </div>
       </aside>
+
+      {/* Resize handle — 8px hit area, 1px visual */}
+      <div
+        onMouseDown={handleResizeStart}
+        className="w-2 shrink-0 cursor-col-resize group relative"
+      >
+        <div className="absolute inset-y-0 left-1/2 -translate-x-px w-px bg-app-border group-hover:bg-app-accent transition-colors" />
+      </div>
 
       {/* Main editor */}
       <main className="flex-1 min-w-0 bg-app-base">
         <TranslationEditor />
       </main>
+
+      {/* Shortcut hint bar */}
+      <ShortcutBar />
+
+      {/* PR confirmation modal */}
+      {showPRConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-app-surface border border-app-border rounded-xl shadow-2xl p-5">
+            <h2 className="text-app-text font-semibold text-sm mb-4">
+              {t.editor.confirmPR}
+            </h2>
+
+            <div className="space-y-3 mb-5">
+              <div>
+                <p className="text-app-muted text-xs uppercase tracking-wider mb-1">
+                  {t.editor.confirmPRBranch}
+                </p>
+                <p className="text-app-text font-mono text-xs bg-app-base rounded px-2 py-1.5 break-all">
+                  {sourceFile && targetLocale
+                    ? buildBranchName(targetLocale, sourceFile.relativePath)
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-app-text text-sm font-medium">
+                  {interp(t.editor.keysTranslated, {
+                    translated: translatedCount,
+                    total: totalCount,
+                  })}
+                </p>
+                <p className="text-app-muted text-xs mt-1">
+                  {t.editor.confirmPRBody}
+                </p>
+              </div>
+            </div>
+
+            {submitError && (
+              <p className="text-key-red text-xs mb-3">{submitError}</p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowPRConfirm(false);
+                  setSubmitError(null);
+                }}
+                disabled={isSubmitting}
+                className="px-4 py-2 text-app-muted hover:text-app-text text-xs transition-colors disabled:opacity-50"
+              >
+                {t.editor.confirmPRCancel}
+              </button>
+              <button
+                onClick={handleSubmitPR}
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-key-green/90 hover:bg-key-green disabled:opacity-40 text-black text-xs font-semibold rounded-md transition-colors"
+              >
+                {isSubmitting ? t.editor.creatingPR : t.editor.confirmPRConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShortcutBar() {
+  const t = useT();
+
+  const shortcuts = [
+    { keys: ["Ctrl", "↵"], label: t.editor.saveAndNextHint },
+    { keys: ["Shift", "↓↑"], label: t.editor.saveAndNavigateHint },
+    { keys: ["Ctrl", "S"], label: t.editor.saveNowHint },
+  ];
+
+  return (
+    <div className="fixed bottom-3 right-4 flex items-center gap-3 pointer-events-none select-none">
+      {shortcuts.map(({ keys, label }) => (
+        <span
+          key={label}
+          className="flex items-center gap-1 text-app-muted/50 text-[10px]"
+        >
+          {keys.map((k) => (
+            <kbd
+              key={k}
+              className="bg-app-surface border border-app-border/50 rounded px-1 py-px text-[10px] font-mono leading-tight"
+            >
+              {k}
+            </kbd>
+          ))}
+          <span>{label}</span>
+        </span>
+      ))}
     </div>
   );
 }

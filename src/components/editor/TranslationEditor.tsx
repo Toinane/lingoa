@@ -10,20 +10,22 @@ export default function TranslationEditor() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Sub-header */}
-      <div className="flex items-center gap-3 px-4 h-9 bg-app-surface border-b border-app-border shrink-0">
+      {/* Sub-header: source → target · filename · position */}
+      <div className="flex items-center gap-2 px-4 h-9 bg-app-surface border-b border-app-border shrink-0">
+        <span className="text-app-muted text-xs uppercase tracking-wider">
+          {sourceFile?.locale ?? "—"}
+        </span>
+        <span className="text-app-muted text-xs">→</span>
         <span className="text-app-text text-xs font-semibold uppercase tracking-wider">
           {targetLocale ?? "—"}
         </span>
-        <span className="text-app-muted text-xs">→</span>
+        <span className="text-app-muted text-xs">·</span>
         <span className="text-app-muted text-xs font-mono truncate flex-1">
-          {sourceFile?.relativePath ?? "—"}
+          {sourceFile?.relativePath.split("/").pop() ?? "—"}
         </span>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-app-muted text-xs">
-            {keys.length > 0 ? interp(t.editor.position, { current: selectedIndex + 1, total: keys.length }) : "—"}
-          </span>
-        </div>
+        <span className="text-app-muted text-xs shrink-0">
+          {keys.length > 0 ? interp(t.editor.position, { current: selectedIndex + 1, total: keys.length }) : "—"}
+        </span>
       </div>
 
       {/* Scrollable editor content */}
@@ -31,7 +33,7 @@ export default function TranslationEditor() {
         {selectedKey ? (
           <>
             <SourceSection source={selectedKey.source} context={selectedKey.context} />
-            <TranslationInput />
+            <TranslationInput key={selectedKey.key} />
             <ProposalsSection proposals={selectedKey.proposals} />
           </>
         ) : (

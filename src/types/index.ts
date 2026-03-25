@@ -19,8 +19,12 @@ export interface TranslationKeyWithState {
   context?: string;
   /** Translation currently in the target locale file on disk (git HEAD) */
   headTranslation?: string;
-  /** Working value in the editor (may differ from headTranslation) */
-  editorTranslation: string;
+  /**
+   * Working value in the editor (may differ from headTranslation).
+   * `null` means the key has never been set — distinct from `""` which is an
+   * explicit empty-string translation (valid in source-language files).
+   */
+  editorTranslation: string | null;
   state: KeyState;
   proposals: PRProposal[];
 }
@@ -61,6 +65,17 @@ export interface RepoInfo {
   isForked: boolean;
   upstreamOwner?: string;
   upstreamRepo?: string;
+}
+
+/** Narrowed type for repos where fork + upstream are confirmed present. */
+export interface ForkedRepoInfo extends RepoInfo {
+  isForked: true;
+  upstreamOwner: string;
+  upstreamRepo: string;
+}
+
+export function isForkedRepo(r: RepoInfo): r is ForkedRepoInfo {
+  return r.isForked === true && !!r.upstreamOwner && !!r.upstreamRepo;
 }
 
 // ─── PRs ──────────────────────────────────────────────────────────────────────

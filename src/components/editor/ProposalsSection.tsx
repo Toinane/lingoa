@@ -1,5 +1,6 @@
 import type { PRProposal } from "../../types";
 import { useAuthStore } from "../../stores/authStore";
+import { openExternal } from "../../lib/tauri";
 import { useT } from "../../i18n";
 
 interface Props {
@@ -39,14 +40,12 @@ export default function ProposalsSection({ proposals }: Props) {
               {t.editor.yours}
             </span>
           )}
-          <a
-            href={p.prUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => openExternal(p.prUrl)}
             className="text-app-muted text-xs hover:text-app-accent transition-colors"
           >
             PR #{p.prNumber}
-          </a>
+          </button>
         </div>
         <p className="text-app-text text-sm bg-app-surface-2 rounded px-2 py-1.5 whitespace-pre-wrap">
           {p.value}

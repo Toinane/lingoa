@@ -16,11 +16,13 @@
         "width": 1280,
         "height": 800,
         "minWidth": 960,
-        "minHeight": 600
+        "minHeight": 600,
+        "decorations": false,
+        "visible": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; connect-src ipc: https://ipc.localhost; img-src 'self' https://avatars.githubusercontent.com data: blob:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

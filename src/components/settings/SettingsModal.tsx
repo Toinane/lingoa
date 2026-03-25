@@ -17,9 +17,9 @@ export default function SettingsModal({ onClose }: Props) {
   const { currentUser, logout, saveToken } = useAuthStore();
   const {
     theme, language,
-    spellCheckDefault, autoSaveOnSwitch,
+    spellCheckDefault,
     setTheme, setLanguage,
-    setSpellCheckDefault, setAutoSaveOnSwitch,
+    setSpellCheckDefault,
   } = useSettingsStore();
   const t = useT();
 
@@ -55,7 +55,7 @@ export default function SettingsModal({ onClose }: Props) {
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed top-10 inset-x-0 bottom-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
     >
       <div className="w-full max-w-md bg-app-surface border border-app-border rounded-xl shadow-2xl overflow-hidden">
@@ -197,12 +197,6 @@ export default function SettingsModal({ onClose }: Props) {
                 description={t.settings.spellcheckDesc}
                 checked={spellCheckDefault}
                 onChange={setSpellCheckDefault}
-              />
-              <SettingRow
-                label={t.settings.autoSave}
-                description={t.settings.autoSaveDesc}
-                checked={autoSaveOnSwitch}
-                onChange={setAutoSaveOnSwitch}
               />
             </div>
           </section>

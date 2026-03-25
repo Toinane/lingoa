@@ -1,34 +1,54 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { useEditorStore } from "../../stores/editorStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useT } from "../../i18n";
 
+const DEBOUNCE_MS = 600;
+
 export default function TranslationInput() {
   const {
-    selectedKey, editBuffer, isDirty,
-    setEditBuffer, saveCurrentKey,
-    navigateCount,
+    selectedKey, editBuffer, setEditBuffer, saveCurrentKey,
   } = useEditorStore();
   const { spellCheckDefault } = useSettingsStore();
   const t = useT();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [spellCheck, setSpellCheck] = useState(spellCheckDefault);
+  const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => { setSpellCheck(spellCheckDefault); }, [spellCheckDefault]);
 
-
-  // On key switch: focus + auto-resize to fit the new content
+  // On mount (which happens on every key change due to key={selectedKey.key} in the parent):
+  // focus the textarea and auto-size it to the initial content.
   useEffect(() => {
-    if (navigateCount > 0) {
-      const ta = textareaRef.current;
-      if (ta) {
-        ta.style.height = "auto";
-        ta.style.height = `${ta.scrollHeight}px`;
-        ta.focus();
-      }
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = "auto";
+      ta.style.height = `${ta.scrollHeight}px`;
+      ta.focus();
     }
-  }, [navigateCount]);
+    return () => {
+      clearTimeout(debounceRef.current);
+      clearTimeout(savedTimerRef.current);
+    };
+  }, []);
+
+  const flashSaved = useCallback(() => {
+    setJustSaved(true);
+    clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setJustSaved(false), 1500);
+  }, []);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setEditBuffer(e.target.value);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      await saveCurrentKey();
+      flashSaved();
+    }, DEBOUNCE_MS);
+  }, [setEditBuffer, saveCurrentKey, flashSaved]);
 
   const sourceLen = selectedKey?.source.length ?? 0;
   const targetLen = editBuffer.length;
@@ -47,7 +67,7 @@ export default function TranslationInput() {
         <textarea
           ref={textareaRef}
           value={editBuffer}
-          onChange={(e) => setEditBuffer(e.target.value)}
+          onChange={handleChange}
           placeholder={t.editor.enterTranslation}
           rows={3}
           spellCheck={spellCheck}
@@ -61,30 +81,22 @@ export default function TranslationInput() {
           <span className="text-app-muted text-xs">{sourceLen} · {targetLen}</span>
           <button
             onClick={() => setSpellCheck((v) => !v)}
-            title={spellCheck ? "Disable spellcheck" : "Enable spellcheck"}
-            className={`text-xs transition-colors px-1.5 py-0.5 rounded ${
-              spellCheck ? "text-app-accent bg-app-accent/10" : "text-app-muted hover:text-app-text"
+            title={spellCheck ? t.editor.spellcheckDisable : t.editor.spellcheckEnable}
+            className={`text-[10px] font-mono transition-all px-1.5 py-0.5 rounded border ${
+              spellCheck
+                ? "text-app-text border-app-border bg-app-surface-2 underline decoration-wavy decoration-key-red"
+                : "text-app-muted border-transparent hover:border-app-border hover:text-app-text"
             }`}
           >
-            ABC
+            abc
           </button>
         </div>
 
-        <div className="flex items-center gap-4">
-          <span className="text-app-muted text-xs hidden md:block">
-            <kbd className="bg-app-surface-2 border border-app-border rounded px-1 py-0.5 text-xs">
-              Shift+↓
-            </kbd>{" "}
-            {t.editor.saveAndNextHint}
-          </span>
-          <button
-            onClick={saveCurrentKey}
-            disabled={!isDirty}
-            className="px-4 py-1.5 bg-app-accent hover:bg-app-accent-hover disabled:opacity-40 disabled:cursor-default text-white text-xs font-medium rounded-md transition-colors"
-          >
-            {t.editor.save}
-          </button>
-        </div>
+        <span className={`text-xs transition-all duration-300 ${
+          justSaved ? "text-key-green opacity-100" : "opacity-0"
+        }`}>
+          ✓ {t.editor.saved}
+        </span>
       </div>
     </div>
   );

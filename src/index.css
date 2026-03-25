@@ -37,19 +37,19 @@
 /* ── Solarized Light theme ────────────────────────────────────────────────── */
 /* Palette: Ethan Schoonover's Solarized — warm cream paper tones             */
 [data-theme="solarized-light"] {
-  --color-app-base:         #fdf6e3;  /* Base3  — paper */
-  --color-app-surface:      #eee8d5;  /* Base2  — card */
-  --color-app-surface-2:    #e4dece;  /* Base2- — input / hover */
-  --color-app-border:       #d5cfbf;  /* derived warm border */
-  --color-app-text:         #657b83;  /* Base00 — primary text */
-  --color-app-muted:        #93a1a1;  /* Base1  — secondary text */
-  --color-app-accent:       #268bd2;  /* Blue */
+  --color-app-base: #fdf6e3;    /* Base3  — paper */
+  --color-app-surface: #eee8d5; /* Base2  — card */
+  --color-app-surface-2: #e4dece; /* Base2- — input / hover */
+  --color-app-border: #c9c3b0;  /* slightly darker border for visibility */
+  --color-app-text: #073642;    /* Base02 — deep teal, ~15:1 on Base3 */
+  --color-app-muted: #586e75;   /* Base01 — ~4.7:1 on Base3 */
+  --color-app-accent: #268bd2;  /* Blue */
   --color-app-accent-hover: #1a7ab8;
 
-  --color-key-green:        #859900;
-  --color-key-yellow:       #b58900;
-  --color-key-blue:         #268bd2;
-  --color-key-red:          #dc322f;
+  --color-key-green: #859900;
+  --color-key-yellow: #b58900;
+  --color-key-blue: #268bd2;
+  --color-key-red: #dc322f;
 }
 
 /* ── Base ─────────────────────────────────────────────────────────────────── */
@@ -61,10 +61,17 @@ body {
   margin: 0;
   background-color: var(--color-app-base);
   color: var(--color-app-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── Suppress native password reveal (WebView2/Edge) — use custom toggle ──── */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
 }
 
 /* ── Scrollbars ───────────────────────────────────────────────────────────── */

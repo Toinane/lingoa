@@ -1,67 +1,66 @@
 import { create } from "zustand";
-import { tauriKeychain } from "../lib/tauri";
-import { initGitHub, fetchCurrentUser } from "../lib/github";
+import { tauriKeychain, tauriGitHub } from "../lib/tauri";
+import { fetchCurrentUser } from "../lib/github";
 import { useAppStore } from "./appStore";
 
 interface AuthState {
-  token: string | null;
   currentUser: string | null;
   isLoading: boolean;
   error: string | null;
 
-  /** Load token from OS keychain on app start */
+  /** Validate the token stored in the OS keychain and load the current user. */
   loadToken: () => Promise<void>;
-  /** Save token, init GitHub client, fetch user */
+  /** Store token in the OS keychain, then validate and load the current user. */
   saveToken: (token: string) => Promise<void>;
-  /** Remove token from keychain and reset state */
+  /** Remove token from keychain and reset state. */
   logout: () => Promise<void>;
-  /** Skip auth and continue without a token (local-only mode) */
+  /** Skip auth and continue without a token (local-only mode). */
   skipAuth: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  token: null,
   currentUser: null,
   isLoading: false,
   error: null,
 
   loadToken: async () => {
     set({ isLoading: true, error: null });
-    try {
-      // Try OS keychain first, fall back to localStorage for reliability
-      let token: string | null = null;
-      try { token = await tauriKeychain.get(); } catch { /* keychain unavailable */ }
-      if (!token) token = localStorage.getItem("lingoa:token");
 
-      if (token) {
-        initGitHub(token);
-        const user = await fetchCurrentUser();
-        set({ token, currentUser: user, isLoading: false });
-        useAppStore.getState().setView("home");
-      } else {
-        set({ isLoading: false });
-        useAppStore.getState().setView("token-setup");
-      }
-    } catch {
+    // Fast keychain presence check — does not make any network call.
+    const stored = await tauriKeychain.isStored().catch(() => false);
+    if (!stored) {
       set({ isLoading: false });
       useAppStore.getState().setView("token-setup");
+      return;
+    }
+
+    // Token exists — try to validate it against GitHub.
+    try {
+      const user = await fetchCurrentUser();
+      set({ currentUser: user, isLoading: false });
+      useAppStore.getState().setView("home");
+    } catch {
+      // Token is stored but GitHub is unreachable (offline, timeout, revoked).
+      // Go to home anyway — the user can retry when they open a repo or PR list.
+      // If the token is actually revoked the next GitHub call will surface the error.
+      set({ isLoading: false, currentUser: null });
+      useAppStore.getState().setView("home");
     }
   },
 
   saveToken: async (token) => {
     set({ isLoading: true, error: null });
     try {
-      initGitHub(token);
-      const user = await fetchCurrentUser();
-      try { await tauriKeychain.store(token); } catch { /* keychain unavailable */ }
-      localStorage.setItem("lingoa:token", token);
-      set({ token, currentUser: user, isLoading: false });
+      // 1. Validate the token directly — before touching the keychain.
+      //    This separates "bad token" from "keychain unavailable" errors.
+      const user = await tauriGitHub.validateToken(token);
+      // 2. Token is valid — persist it.
+      await tauriKeychain.store(token);
+      set({ currentUser: user, isLoading: false });
       useAppStore.getState().setView("home");
     } catch (e) {
-      set({
-        isLoading: false,
-        error: e instanceof Error ? e.message : "Invalid token",
-      });
+      const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "Failed to save token";
+      set({ isLoading: false, error: msg });
     }
   },
 
@@ -71,8 +70,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: async () => {
     await tauriKeychain.delete().catch(() => {});
-    localStorage.removeItem("lingoa:token");
-    set({ token: null, currentUser: null });
+    set({ currentUser: null });
     useAppStore.getState().setView("token-setup");
   },
 }));

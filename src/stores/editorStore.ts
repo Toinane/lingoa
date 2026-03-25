@@ -1,13 +1,16 @@
 import { create } from "zustand";
-import type { TranslationFile, TranslationKeyWithState, KeyState, TranslationValue } from "../types";
-import { tauriFs, tauriGit } from "../lib/tauri";
-import { parseJsonFlat, serializeJson } from "../lib/parsers/json";
-import { parseYaml, serializeYaml } from "../lib/parsers/yaml";
-import { deriveTargetPath, buildBranchName, createBranchAndPush } from "../lib/git";
+import { isForkedRepo } from "../types";
+import type {
+  TranslationFile,
+  TranslationKeyWithState,
+  KeyState,
+} from "../types";
+import type { TranslationValue } from "../types";
+import { tauriFs, tauriGit, tauriParsers, tauriGitHub } from "../lib/tauri";
+import { deriveTargetPath, buildBranchName, ensureBranchAndPush } from "../lib/git";
 import { createPR } from "../lib/github";
 import { usePRStore } from "./prStore";
 import { useRepoStore } from "./repoStore";
-import { useSettingsStore } from "./settingsStore";
 
 interface EditorState {
   sourceFile: TranslationFile | null;
@@ -30,7 +33,6 @@ interface EditorState {
   isDirty: boolean;
   isLoading: boolean;
   error: string | null;
-  navigateCount: number;
 
   loadEditor: (
     sourceFile: TranslationFile,
@@ -38,16 +40,32 @@ interface EditorState {
     currentUser: string | null,
     repoPath: string
   ) => Promise<void>;
-  selectKey: (index: number) => void;
-  /** Like selectKey but auto-saves first when the setting is enabled. */
-  switchKey: (index: number) => void;
-  nextKey: () => void;
-  prevKey: () => void;
+  selectKey: (index: number) => Promise<void>;
+  nextKey: () => Promise<void>;
+  prevKey: () => Promise<void>;
   setEditBuffer: (value: string) => void;
   saveCurrentKey: () => Promise<void>;
   saveAndNext: () => Promise<void>;
-  setSearchQuery: (query: string) => void;
+  setSearchQuery: (query: string) => Promise<void>;
   submitPR: () => Promise<string>;
+}
+
+function fileFormat(path: string): string {
+  return /\.ya?ml$/i.test(path) ? "yaml" : "json";
+}
+
+/** Pure derivation of filtered keys from the full key list and a search query.
+ *  Keeping this as a standalone function ensures every code path that updates
+ *  `keys` or `searchQuery` derives `filteredKeys` consistently. */
+function computeFiltered(
+  keys: TranslationKeyWithState[],
+  query: string
+): TranslationKeyWithState[] {
+  if (!query) return keys;
+  const q = query.toLowerCase();
+  return keys.filter(
+    (k) => k.key.toLowerCase().includes(q) || k.source.toLowerCase().includes(q)
+  );
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -66,63 +84,49 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isDirty: false,
   isLoading: false,
   error: null,
-  navigateCount: 0,
 
-  loadEditor: async (sourceFile, targetLocale: string, currentUser: string | null, repoPath) => {
+  loadEditor: async (sourceFile, targetLocale, currentUser, repoPath) => {
     set({ isLoading: true, error: null });
     try {
-      // 1. Parse source file
-      const sourceContent = await tauriFs.readFile(sourceFile.absolutePath);
-      const isYaml = /\.ya?ml$/i.test(sourceFile.relativePath);
-      const sourceKeys = isYaml
-        ? parseYaml(sourceContent)
-        : parseJsonFlat(sourceContent);
-
-      // 2. Parse target file (working copy — may not exist yet)
+      const fmt = fileFormat(sourceFile.relativePath);
       const targetRelPath = deriveTargetPath(
         sourceFile.relativePath,
         sourceFile.locale,
         targetLocale
       );
-      const targetAbsPath = `${repoPath}/${targetRelPath}`;
-      let localKeys: Record<string, TranslationValue> = {};
-      try {
-        const targetContent = await tauriFs.readFile(targetAbsPath);
-        localKeys = isYaml ? parseYaml(targetContent) : parseJsonFlat(targetContent);
-      } catch {
-        // Target file doesn't exist yet
-      }
 
-      // 2b. Parse the committed (HEAD) version of the target file
-      // Keys present in HEAD = truly "Done"; keys only on disk = locally saved, not committed
-      let headKeys: Record<string, TranslationValue> = {};
-      try {
-        const headContent = await tauriGit.run(["show", `HEAD:${targetRelPath}`], repoPath);
-        headKeys = isYaml ? parseYaml(headContent) : parseJsonFlat(headContent);
-      } catch {
-        // File not in HEAD yet (new locale or new file)
-      }
+      // Fire all three read+parse chains concurrently — they are fully independent.
+      // Total latency = max(source, target, HEAD) instead of their sum.
+      const empty = {} as Record<string, TranslationValue>;
+      const [sourceKeys, localKeys, headKeys] = await Promise.all([
+        tauriFs.readFile(repoPath, sourceFile.relativePath)
+          .then((c) => tauriParsers.parse(c, fmt)),
+        tauriFs.readFile(repoPath, targetRelPath)
+          .then((c) => tauriParsers.parse(c, fmt))
+          .catch(() => empty),
+        tauriGit.showFileAtHead(repoPath, targetRelPath)
+          .then((c) => tauriParsers.parse(c, fmt))
+          .catch(() => empty),
+      ]);
 
-      // Register the target file in repoStore so locale selectors stay in sync
       useRepoStore.getState().registerTargetFile({
-        absolutePath: targetAbsPath,
+        absolutePath: `${repoPath}/${targetRelPath}`,
         relativePath: targetRelPath,
         locale: targetLocale,
         keyCount: 0,
       });
 
-      // 3. Get PR index and own PRs
+      // 4. Build key list with states
       const { index, openPRs } = usePRStore.getState();
       const ownPRNumbers = new Set(
         openPRs.filter((pr) => pr.author === currentUser).map((pr) => pr.number)
       );
       const localeProposals = index[targetLocale] ?? {};
 
-      // 4. Build key list with states
       const keys: TranslationKeyWithState[] = Object.entries(sourceKeys).map(
         ([key, value]) => {
-          const headTranslation = headKeys[key]?.text;    // committed to git
-          const localTranslation = localKeys[key]?.text;  // saved on disk
+          const headTranslation = headKeys[key]?.text;
+          const localTranslation = localKeys[key]?.text;
           const proposals = localeProposals[key] ?? [];
           const ownProposal = proposals.find((p) => ownPRNumbers.has(p.prNumber));
           const hasOtherProposal = proposals.some(
@@ -133,7 +137,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           if (headTranslation !== undefined) {
             state = "translated";
           } else if (localTranslation !== undefined) {
-            // Saved locally but not yet committed
             state = "own-pending";
           } else if (ownProposal) {
             state = "own-pending";
@@ -148,12 +151,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             source: value.text,
             context: value.context,
             headTranslation,
-            editorTranslation: localTranslation ?? headTranslation ?? ownProposal?.value ?? "",
+            // null = never set; "" = explicitly set to empty (valid in some i18n formats)
+            editorTranslation:
+              localTranslation ?? headTranslation ?? ownProposal?.value ?? null,
             state,
             proposals,
           };
         }
       );
+
+      // Sort alphabetically so sidebar order and arrow-key navigation are consistent
+      keys.sort((a, b) => a.key.localeCompare(b.key));
 
       set({
         sourceFile,
@@ -163,7 +171,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         repoPath,
         sourceKeys,
         keys,
-        filteredKeys: keys,
+        // searchQuery is "" at load time so computeFiltered returns the full list.
+        // Always derive via computeFiltered to keep filteredKeys consistent.
+        filteredKeys: computeFiltered(keys, ""),
+        searchQuery: "",
         selectedIndex: 0,
         selectedKey: keys[0] ?? null,
         editBuffer: keys[0]?.editorTranslation ?? "",
@@ -178,77 +189,109 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
-  switchKey: (index) => {
-    const { isDirty } = get();
-    if (isDirty && useSettingsStore.getState().autoSaveOnSwitch) {
-      get().saveCurrentKey(); // fire-and-forget; values captured before selectKey runs
-    }
-    get().selectKey(index);
-  },
-
-  selectKey: (index) => {
-    const { filteredKeys, navigateCount } = get();
+  selectKey: async (index) => {
+    const { filteredKeys, isDirty } = get();
+    // Persist any in-flight edit before moving away from the current key.
+    if (isDirty) await get().saveCurrentKey();
     const key = filteredKeys[index] ?? null;
     set({
       selectedIndex: index,
       selectedKey: key,
       editBuffer: key?.editorTranslation ?? "",
       isDirty: false,
-      navigateCount: navigateCount + 1,
     });
   },
 
-  nextKey: () => {
+  nextKey: async () => {
     const { selectedIndex, filteredKeys } = get();
     if (selectedIndex < filteredKeys.length - 1) {
-      get().selectKey(selectedIndex + 1);
+      await get().selectKey(selectedIndex + 1);
     }
   },
 
-  prevKey: () => {
+  prevKey: async () => {
     const { selectedIndex } = get();
-    if (selectedIndex > 0) {
-      get().selectKey(selectedIndex - 1);
-    }
+    if (selectedIndex > 0) await get().selectKey(selectedIndex - 1);
   },
 
   setEditBuffer: (value) => set({ editBuffer: value, isDirty: true }),
 
   saveCurrentKey: async () => {
-    const { selectedKey, editBuffer, keys, filteredKeys, repoPath, targetRelPath, sourceKeys } = get();
+    const {
+      selectedKey,
+      editBuffer,
+      keys,
+      repoPath,
+      targetRelPath,
+      sourceKeys,
+      currentUser,
+      searchQuery,
+    } = get();
     if (!selectedKey || !repoPath || !targetRelPath) return;
+    // Don't write anything when the buffer is empty and the key was never set.
+    // This distinguishes "never touched" (null) from "explicitly cleared" ("").
+    if (editBuffer === "" && selectedKey.editorTranslation === null) return;
 
-    // Update key in both arrays
-    // Locally saved translations are "own-pending" (user draft, not yet in HEAD).
-    // Only mark "translated" if the HEAD already had a translation.
+    // Re-derive state from the full context so that clearing a buffer correctly
+    // reverts to "other-pending" when third-party PR proposals still exist,
+    // rather than always falling through to "untranslated".
+    const ownPRNumbers = new Set(
+      usePRStore.getState().openPRs
+        .filter((p) => p.author === currentUser)
+        .map((p) => p.number)
+    );
+    const deriveState = (k: TranslationKeyWithState, text: string): KeyState => {
+      if (text && text === k.headTranslation) return "translated";
+      if (text) return "own-pending";
+      if (k.proposals.some((p) => !ownPRNumbers.has(p.prNumber))) return "other-pending";
+      return "untranslated";
+    };
+
     const updater = (k: TranslationKeyWithState) =>
       k.key === selectedKey.key
-        ? {
-            ...k,
-            editorTranslation: editBuffer,
-            state: editBuffer
-              ? (k.headTranslation !== undefined ? "translated" : "own-pending") as KeyState
-              : k.state,
-          }
+        ? { ...k, editorTranslation: editBuffer, state: deriveState(k, editBuffer) }
         : k;
 
     const updatedKeys = keys.map(updater);
-    const updatedFiltered = filteredKeys.map(updater);
+    // Derive filteredKeys from updatedKeys + searchQuery — never sync manually.
+    const updatedFiltered = computeFiltered(updatedKeys, searchQuery);
 
-    // Build translation map and persist to disk
+    // Build translation map and serialize via Rust.
+    // Include explicit empty strings (null means "never set" and is excluded).
     const translations: Record<string, string> = {};
     for (const k of updatedKeys) {
-      if (k.editorTranslation) translations[k.key] = k.editorTranslation;
+      if (k.editorTranslation !== null) translations[k.key] = k.editorTranslation;
     }
 
-    const isYaml = /\.ya?ml$/i.test(targetRelPath);
-    const content = isYaml
-      ? serializeYaml(translations, sourceKeys)
-      : serializeJson(translations, sourceKeys);
-
-    await tauriFs.writeFile(`${repoPath}/${targetRelPath}`, content);
+    const content = await tauriParsers.serialize(
+      translations,
+      sourceKeys,
+      fileFormat(targetRelPath)
+    );
+    await tauriFs.writeFile(repoPath, targetRelPath, content);
 
     set({ keys: updatedKeys, filteredKeys: updatedFiltered, isDirty: false });
+
+    // Persist session so Home can offer a Resume card
+    const { sourceFile: sf, targetLocale: tl, repoPath: rp } = get();
+    if (sf && tl && rp) {
+      const repoInfo = useRepoStore.getState().repoInfo;
+      const repoLabel = repoInfo
+        ? `${repoInfo.owner}/${repoInfo.repo}`
+        : rp.split("/").pop() ?? rp;
+      localStorage.setItem(
+        "lingoa:last-session",
+        JSON.stringify({
+          repoPath: rp,
+          sourceFilePath: sf.relativePath,
+          sourceLocale: sf.locale,
+          targetLocale: tl,
+          repoLabel,
+          translatedCount: updatedKeys.filter((k) => k.editorTranslation !== null).length,
+          totalCount: updatedKeys.length,
+        })
+      );
+    }
   },
 
   saveAndNext: async () => {
@@ -256,29 +299,33 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     get().nextKey();
   },
 
-  setSearchQuery: (query) => {
-    const { keys, selectedKey, editBuffer } = get();
-    const q = query.toLowerCase();
-    const filteredKeys = q
-      ? keys.filter(
-          (k) =>
-            k.key.toLowerCase().includes(q) ||
-            k.source.toLowerCase().includes(q)
-        )
-      : keys;
+  setSearchQuery: async (query) => {
+    const { keys, selectedKey, editBuffer, isDirty } = get();
+    const filteredKeys = computeFiltered(keys, query);
 
-    // Keep current key selected if still in results — avoids de-syncing editBuffer
-    // and prevents spurious focus changes while typing/erasing in the search box.
     const keepIdx = selectedKey
       ? filteredKeys.findIndex((k) => k.key === selectedKey.key)
       : -1;
     const newIndex = keepIdx >= 0 ? keepIdx : 0;
     const newKey = filteredKeys[newIndex] ?? null;
-    const newBuffer = newKey && newKey.key !== selectedKey?.key
-      ? (newKey.editorTranslation ?? "")
+    const willSwitchKey = newKey?.key !== selectedKey?.key;
+
+    // Save any in-flight edit before moving to a different key.
+    if (isDirty && willSwitchKey) {
+      await get().saveCurrentKey();
+    }
+
+    const newBuffer = willSwitchKey
+      ? (newKey?.editorTranslation ?? "")
       : editBuffer;
 
-    set({ searchQuery: query, filteredKeys, selectedIndex: newIndex, selectedKey: newKey, editBuffer: newBuffer });
+    set({
+      searchQuery: query,
+      filteredKeys,
+      selectedIndex: newIndex,
+      selectedKey: newKey,
+      editBuffer: newBuffer,
+    });
   },
 
   submitPR: async () => {
@@ -290,25 +337,37 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const repoInfo = useRepoStore.getState().repoInfo;
     if (!repoInfo) throw new Error("No repo info available");
 
-    const owner = repoInfo.upstreamOwner ?? repoInfo.owner;
-    const repo = repoInfo.upstreamRepo ?? repoInfo.repo;
+    // PR targets the upstream repo (or same repo if not forked).
+    const prOwner = isForkedRepo(repoInfo) ? repoInfo.upstreamOwner : repoInfo.owner;
+    const prRepo = isForkedRepo(repoInfo) ? repoInfo.upstreamRepo : repoInfo.repo;
+    // For cross-fork PRs, GitHub needs "head": "forkOwner:branch".
+    const headOwner = repoInfo.owner;
     const branchName = buildBranchName(targetLocale, sourceFile.relativePath);
 
-    await createBranchAndPush(
+    // Idempotent: creates the branch on first submit, switches to it on amendment.
+    await ensureBranchAndPush(
       repoPath,
       branchName,
       targetRelPath,
       `translate: ${targetLocale} - ${sourceFile.relativePath}`
     );
 
-    const prUrl = await createPR(
-      owner,
-      repo,
+    // Check whether a PR already exists for this branch (amendment case).
+    const existingUrl = await tauriGitHub.findPRForBranch(prOwner, prRepo, headOwner, branchName);
+    if (existingUrl) {
+      localStorage.removeItem("lingoa:last-session");
+      return existingUrl;
+    }
+
+    const url = await createPR(
+      prOwner,
+      prRepo,
       `[Translation] ${targetLocale} — ${sourceFile.relativePath}`,
+      headOwner,
       branchName,
       `Translation of \`${sourceFile.relativePath}\` to \`${targetLocale}\`.\n\n_Created with [Lingoa](https://github.com/gh-translate/gh-translate)_`
     );
-
-    return prUrl;
+    localStorage.removeItem("lingoa:last-session");
+    return url;
   },
 }));

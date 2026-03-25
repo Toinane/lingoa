@@ -1,11 +1,9 @@
 import { create } from "zustand";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { RepoInfo, TranslationFile, RecentRepo } from "../types";
-import { tauriFs, tauriGit } from "../lib/tauri";
+import { tauriDiscovery, tauriParsers, tauriGit, type DiscoveredFile } from "../lib/tauri";
 import { parseGithubUrl } from "../lib/git";
-import { discoverI18nFiles, detectSourceFile, detectLocaleFromPath } from "../lib/discovery";
-import { parseJsonFlat } from "../lib/parsers/json";
-import { parseYaml } from "../lib/parsers/yaml";
+import { detectFork } from "../lib/github";
 
 const RECENT_REPOS_KEY = "lingoa:recent-repos";
 const MAX_RECENT = 8;
@@ -17,6 +15,7 @@ interface RepoState {
   sourceFile: TranslationFile | null;
   recentRepos: RecentRepo[];
   isScanning: boolean;
+  isDetectingFork: boolean;
   error: string | null;
 
   openFolder: () => Promise<void>;
@@ -26,34 +25,42 @@ interface RepoState {
   setSourceFile: (file: TranslationFile) => void;
   loadRecentRepos: () => void;
   removeRecentRepo: (localPath: string) => void;
-  /** Register a new target file that was created during translation (not on disk yet). */
   registerTargetFile: (file: TranslationFile) => void;
 }
 
-async function countKeys(f: TranslationFile): Promise<TranslationFile> {
+/** Count keys for a single file via a single sandboxed Rust IPC call. */
+async function countKeys(f: TranslationFile, repoPath: string): Promise<TranslationFile> {
   try {
-    const content = await tauriFs.readFile(f.absolutePath);
-    const keys = /\.ya?ml$/i.test(f.relativePath)
-      ? parseYaml(content)
-      : parseJsonFlat(content);
-    return { ...f, keyCount: Object.keys(keys).length };
+    const keyCount = await tauriParsers.countKeys(repoPath, f.relativePath);
+    return { ...f, keyCount };
   } catch {
     return f;
   }
 }
 
-/** Process files in small batches, yielding to the event loop between each batch. */
+/** Process files in small batches to keep the UI responsive between batches. */
 const BATCH_SIZE = 5;
 async function countKeysBatched(
   files: TranslationFile[],
+  repoPath: string,
   onBatch: (counted: TranslationFile[]) => void
 ): Promise<void> {
   for (let i = 0; i < files.length; i += BATCH_SIZE) {
-    const counted = await Promise.all(files.slice(i, i + BATCH_SIZE).map(countKeys));
+    const counted = await Promise.all(
+      files.slice(i, i + BATCH_SIZE).map((f) => countKeys(f, repoPath))
+    );
     onBatch(counted);
-    // Yield to the browser's event loop so the UI stays responsive
     await new Promise<void>((r) => setTimeout(r, 0));
   }
+}
+
+function detectSourceFile(files: TranslationFile[]): TranslationFile | null {
+  return (
+    files.find((f) => f.locale === "en") ??
+    files.find((f) => f.locale === "en-US") ??
+    [...files].sort((a, b) => b.keyCount - a.keyCount)[0] ??
+    null
+  );
 }
 
 export const useRepoStore = create<RepoState>((set, get) => ({
@@ -63,6 +70,7 @@ export const useRepoStore = create<RepoState>((set, get) => ({
   sourceFile: null,
   recentRepos: [],
   isScanning: false,
+  isDetectingFork: false,
   error: null,
 
   openFolder: async () => {
@@ -76,23 +84,80 @@ export const useRepoStore = create<RepoState>((set, get) => ({
   },
 
   openPath: async (repoPath) => {
-    set({ isScanning: true, error: null, repoPath, files: [], sourceFile: null, repoInfo: null });
+    set({
+      isScanning: true,
+      isDetectingFork: false,
+      error: null,
+      repoPath,
+      files: [],
+      sourceFile: null,
+      repoInfo: null,
+    });
+    let pendingForkDetection: Promise<void> | null = null;
     try {
-      // 1. Detect git remote (fast)
+      // 1. Detect git remote (fast, git2-based) + fork detection
       let repoInfo: RepoInfo | null = null;
       try {
-        const remoteUrl = await tauriGit.run(["remote", "get-url", "origin"], repoPath);
-        const parsed = parseGithubUrl(remoteUrl);
-        if (parsed) repoInfo = { ...parsed, localPath: repoPath, isForked: false };
+        const remoteUrl = await tauriGit.getRemoteUrl(repoPath);
+        if (remoteUrl) {
+          const parsed = parseGithubUrl(remoteUrl);
+          if (parsed) {
+            repoInfo = { ...parsed, localPath: repoPath, isForked: false };
+
+            // 1a. Check for an `upstream` git remote (fast path — fork with upstream configured)
+            let forkDetected = false;
+            try {
+              const upstreamUrl = await tauriGit.getUpstreamRemoteUrl(repoPath);
+              if (upstreamUrl) {
+                const upstreamParsed = parseGithubUrl(upstreamUrl);
+                if (upstreamParsed) {
+                  repoInfo = {
+                    ...repoInfo,
+                    isForked: true,
+                    upstreamOwner: upstreamParsed.owner,
+                    upstreamRepo: upstreamParsed.repo,
+                  };
+                  forkDetected = true;
+                }
+              }
+            } catch { /* no upstream remote */ }
+
+            // 1b. Fallback: query GitHub API to detect fork (async, non-blocking)
+            if (!forkDetected) {
+              pendingForkDetection = detectFork(parsed.owner, parsed.repo)
+                .then((forkInfo) => {
+                  if (forkInfo) {
+                    set((s) =>
+                      s.repoInfo
+                        ? {
+                            isDetectingFork: false,
+                            repoInfo: {
+                              ...s.repoInfo,
+                              isForked: true,
+                              upstreamOwner: forkInfo.upstreamOwner,
+                              upstreamRepo: forkInfo.upstreamRepo,
+                            },
+                          }
+                        : { isDetectingFork: false }
+                    );
+                  } else {
+                    set({ isDetectingFork: false });
+                  }
+                })
+                .catch(() => { set({ isDetectingFork: false }); });
+            }
+          }
+        }
       } catch { /* no git remote */ }
 
-      // 2. List all files + discover i18n files
-      const relativePaths = await tauriFs.listFiles(repoPath);
-      const files = discoverI18nFiles(relativePaths, repoPath);
+      // 2. Discover i18n files (Rust: walkdir + locale pattern matching)
+      const files: TranslationFile[] = (await tauriDiscovery.discover(repoPath)).map(
+        (f: DiscoveredFile) => ({ ...f, keyCount: 0 })
+      );
       const sourceFile = detectSourceFile(files);
 
-      // ── Unblock the UI immediately — show files without key counts ──
-      set({ repoInfo, files, sourceFile, isScanning: false });
+      // Unblock the UI — isDetectingFork stays true until fork API call resolves
+      set({ repoInfo, files, sourceFile, isScanning: false, isDetectingFork: pendingForkDetection !== null });
 
       // Save to recent repos
       if (repoInfo) {
@@ -102,14 +167,19 @@ export const useRepoStore = create<RepoState>((set, get) => ({
           repo: repoInfo.repo,
           lastOpenedAt: new Date().toISOString(),
         };
-        const existing: RecentRepo[] = JSON.parse(localStorage.getItem(RECENT_REPOS_KEY) ?? "[]");
-        const updated = [recent, ...existing.filter((r) => r.localPath !== repoPath)].slice(0, MAX_RECENT);
+        const existing: RecentRepo[] = JSON.parse(
+          localStorage.getItem(RECENT_REPOS_KEY) ?? "[]"
+        );
+        const updated = [
+          recent,
+          ...existing.filter((r) => r.localPath !== repoPath),
+        ].slice(0, MAX_RECENT);
         localStorage.setItem(RECENT_REPOS_KEY, JSON.stringify(updated));
         set({ recentRepos: updated });
       }
 
-      // 3. Count keys in batches — updates the store incrementally, UI stays responsive
-      await countKeysBatched(files, (batch) => {
+      // 3. Count keys in batches (each call is a single Rust IPC: read + parse)
+      await countKeysBatched(files, repoPath, (batch) => {
         set((s) => {
           const updated = s.files.map(
             (f) => batch.find((b) => b.absolutePath === f.absolutePath) ?? f
@@ -117,9 +187,11 @@ export const useRepoStore = create<RepoState>((set, get) => ({
           return { files: updated, sourceFile: detectSourceFile(updated) };
         });
       });
-
     } catch (e) {
-      set({ isScanning: false, error: e instanceof Error ? e.message : "Failed to open folder" });
+      set({
+        isScanning: false,
+        error: e instanceof Error ? e.message : "Failed to open folder",
+      });
     }
   },
 
@@ -135,30 +207,45 @@ export const useRepoStore = create<RepoState>((set, get) => ({
 
     const paths: string[] = Array.isArray(selected) ? selected : [selected];
     const newFiles: TranslationFile[] = [];
+    const normalizedRepo = repoPath ? repoPath.replace(/\\/g, "/") : null;
+    const prefix = normalizedRepo ? normalizedRepo + "/" : null;
+    const skipped: string[] = [];
 
     for (const absPath of paths) {
       const normalized = absPath.replace(/\\/g, "/");
-      // Derive relative path from repo root if available
-      const relPath = repoPath
-        ? normalized.replace(repoPath.replace(/\\/g, "/") + "/", "")
-        : normalized.split("/").pop()!;
 
-      const locale = detectLocaleFromPath(relPath) ?? detectLocaleFromPath(normalized) ?? "unknown";
+      // Reject files outside the repo — their relative path would be meaningless
+      // for all subsequent git and FS operations.
+      if (!prefix || !normalized.startsWith(prefix)) {
+        skipped.push(normalized.split("/").pop() ?? normalized);
+        continue;
+      }
 
-      newFiles.push({ absolutePath: normalized, relativePath: relPath, locale, keyCount: 0 });
+      const relPath = normalized.slice(prefix.length);
+      const locale = (await tauriDiscovery.detectLocale(relPath)) ?? "unknown";
+
+      newFiles.push({
+        absolutePath: normalized,
+        relativePath: relPath,
+        locale,
+        keyCount: 0,
+      });
     }
 
-    // Merge with existing, skip duplicates
+    if (skipped.length > 0) {
+      set({ error: `Files outside the repository were skipped: ${skipped.join(", ")}` });
+    }
+
     const existing = get().files;
     const merged = [
       ...existing,
-      ...newFiles.filter((nf) => !existing.some((e) => e.absolutePath === nf.absolutePath)),
+      ...newFiles.filter(
+        (nf) => !existing.some((e) => e.absolutePath === nf.absolutePath)
+      ),
     ];
-    const sourceFile = detectSourceFile(merged);
-    set({ files: merged, sourceFile });
+    set({ files: merged, sourceFile: detectSourceFile(merged) });
 
-    // Count keys for new files in batches
-    await countKeysBatched(newFiles, (batch) => {
+    await countKeysBatched(newFiles, repoPath!, (batch) => {
       set((s) => {
         const updated = s.files.map(
           (f) => batch.find((b) => b.absolutePath === f.absolutePath) ?? f
@@ -176,8 +263,23 @@ export const useRepoStore = create<RepoState>((set, get) => ({
   loadRecentRepos: () => {
     try {
       const stored = localStorage.getItem(RECENT_REPOS_KEY);
-      if (stored) set({ recentRepos: JSON.parse(stored) as RecentRepo[] });
-    } catch { /* ignore */ }
+      if (!stored) return;
+      const parsed: unknown = JSON.parse(stored);
+      if (!Array.isArray(parsed)) throw new Error("unexpected shape");
+      const valid = parsed.filter(
+        (r): r is RecentRepo =>
+          typeof r === "object" &&
+          r !== null &&
+          typeof (r as RecentRepo).localPath === "string" &&
+          typeof (r as RecentRepo).owner === "string" &&
+          typeof (r as RecentRepo).repo === "string" &&
+          typeof (r as RecentRepo).lastOpenedAt === "string"
+      );
+      set({ recentRepos: valid });
+    } catch {
+      // Corrupt or schema-mismatched data — reset to avoid a broken state.
+      localStorage.removeItem(RECENT_REPOS_KEY);
+    }
   },
 
   removeRecentRepo: (localPath) => {

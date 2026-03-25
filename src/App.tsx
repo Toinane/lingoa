@@ -1,9 +1,9 @@
 import { useEffect } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppStore } from "./stores/appStore";
 import { useAuthStore } from "./stores/authStore";
 import { useRepoStore } from "./stores/repoStore";
 import { useSettingsStore } from "./stores/settingsStore";
-import TokenSetup from "./components/auth/TokenSetup";
 import AppShell from "./components/layout/AppShell";
 
 export default function App() {
@@ -18,7 +18,13 @@ export default function App() {
     loadRecentRepos();
   }, [loadSettings, loadToken, loadRecentRepos]);
 
+  // Show the window once the app is ready — avoids white flash on startup
+  useEffect(() => {
+    if (view !== "loading") {
+      getCurrentWindow().show();
+    }
+  }, [view]);
+
   if (view === "loading") return null;
-  if (view === "token-setup") return <TokenSetup />;
   return <AppShell />;
 }

@@ -1,13 +1,16 @@
 {
   "app": {
     "name": "Lingoa",
-    "tagline": "Translate GitHub repositories collaboratively"
+    "tagline": "git push your language barrier away",
+    "description": "Lingoa is a desktop app that helps you translate your projects and contribute to open source in your native language. Connect your GitHub account, open a repository, and start translating."
   },
 
   "nav": {
     "home": "Home",
     "editor": "Editor",
+    "editorDisabledHint": "Start a translation session from Home first",
     "review": "Review",
+    "reviewDisabledHint": "Connect GitHub and open a repository to review PRs",
     "settings": "Settings"
   },
 
@@ -22,13 +25,19 @@
     "scopePrivate": "for private repos",
     "scopePublic": "for public only",
     "skip": "Skip for now",
-    "skipHint": "Local translation only — PR creation will be unavailable"
+    "skipHint": "Local translation only — PR creation will be unavailable",
+    "createTokenHint": "Need a token?",
+    "createTokenLink": "Create one on GitHub \u2197"
   },
 
   "home": {
     "openFolder": "Open Repository Folder",
     "openFolderHint": "Open a locally cloned GitHub repository",
     "recent": "Recent",
+    "resumeSession": "Resume",
+    "resumeHint": "Continue your last session",
+    "resumeLocale": "{{source}} → {{target}}",
+    "resumeKeys": "{{translated}}/{{total}} keys",
     "changeFolder": "Change folder",
     "noRemoteWarning": "No GitHub remote detected. You can still translate locally \u2014 PR creation will be unavailable.",
     "prsTarget": "PRs target:",
@@ -48,7 +57,8 @@
     "keys": "{{n}} keys",
     "countingKeys": "counting\u2026",
     "upstreamPlaceholder": "owner/repo (upstream)",
-    "set": "Set"
+    "set": "Set",
+    "forkDetected": "fork"
   },
 
   "editor": {
@@ -63,14 +73,26 @@
     "noRemoteLocal": "No GitHub remote \u2014 changes saved locally only.",
     "position": "{{current}} / {{total}}",
     "sourceString": "Source string",
+    "copySource": "Copy",
+    "copied": "Copied!",
     "context": "Context",
     "selectKeyPrompt": "Select a key from the sidebar to start translating",
     "enterTranslation": "Enter translation\u2026",
     "selectKeyShort": "Select a key from the sidebar",
     "saveAndNextHint": "save & next",
+    "saveAndNavigateHint": "save & navigate",
+    "saveNowHint": "save now",
     "save": "Save",
     "proposals": "Other proposals",
-    "yours": "yours"
+    "yours": "yours",
+    "saved": "Saved",
+    "confirmPR": "Create Pull Request",
+    "confirmPRBranch": "Branch",
+    "confirmPRBody": "This will push your changes and open a PR on GitHub.",
+    "confirmPRConfirm": "Create PR",
+    "confirmPRCancel": "Cancel",
+    "spellcheckEnable": "Enable spellcheck",
+    "spellcheckDisable": "Disable spellcheck"
   },
 
   "keyList": {
