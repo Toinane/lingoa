@@ -112,7 +112,7 @@
     "settings": "Paramètres"
   },
   "review": {
-    "approve": "Accepté",
+    "approve": "Valider",
     "colKey": "Clé",
     "colSource": "Source",
     "colTranslation": "Traduction",
