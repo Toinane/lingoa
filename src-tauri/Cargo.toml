@@ -1,6 +1,6 @@
 [package]
 name = "lingoa"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lingoa — GitHub i18n Translation Tool"
 authors = []
 edition = "2021"
