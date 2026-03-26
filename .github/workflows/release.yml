@@ -37,16 +37,6 @@ jobs:
             args: "--target aarch64-pc-windows-msvc"
             rust-targets: "aarch64-pc-windows-msvc"
 
-          # Windows x64 portable — single exe, no install required, no auto-updater
-          - platform: windows-latest
-            args: "--bundles nsis --config src-tauri/tauri.portable.conf.json"
-            rust-targets: ""
-
-          # Windows ARM64 portable
-          - platform: windows-11-arm
-            args: "--target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.portable.conf.json"
-            rust-targets: "aarch64-pc-windows-msvc"
-
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -103,14 +93,78 @@ jobs:
           releaseBody: |
             Download the installer for your platform below.
 
-            | Platform | File | Notes |
-            |---|---|---|
-            | Windows x64 | `Lingoa_x.x.x_x64-setup.exe` | Installer, auto-updates |
-            | Windows x64 | `Lingoa_x.x.x_x64-portable.exe` | No install needed |
-            | Windows ARM64 | `Lingoa_x.x.x_arm64-setup.exe` | Installer, auto-updates |
-            | Windows ARM64 | `Lingoa_x.x.x_arm64-portable.exe` | No install needed |
-            | macOS (Universal) | `Lingoa_x.x.x_universal.dmg` | Auto-updates |
-            | Linux | `lingoa_x.x.x_amd64.AppImage` | Auto-updates |
+            | Platform | File |
+            |---|---|
+            | Windows x64 | `Lingoa_x.x.x_x64-setup.exe` |
+            | Windows ARM64 | `Lingoa_x.x.x_arm64-setup.exe` |
+            | macOS (Universal) | `Lingoa_x.x.x_universal.dmg` |
+            | Linux | `lingoa_x.x.x_amd64.AppImage` |
+
+            **Portable Version**
+            The portable version doesn't require installation and can be run directly. Note that it won't receive automatic updates. Requires [Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) to be installed on Windows (installed by default on most Windows 10+ systems).
+
+            | Platform | File |
+            |---|---|
+            | Windows x64 | `Lingoa_x.x.x_x64-portable.exe` |
+            | Windows ARM64 | `Lingoa_x.x.x_arm64-portable.exe` |
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  portable:
+    needs: publish
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: x64
+
+          - platform: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            suffix: arm64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build portable exe
+        run: npm run tauri build -- --target ${{ matrix.target }} --no-bundle --features portable
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Package and upload portable exe
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $src = "src-tauri/target/${{ matrix.target }}/release/lingoa.exe"
+          $artifact = "Lingoa_${version}_${{ matrix.suffix }}-portable.exe"
+          Copy-Item $src $artifact
+          gh release upload "${{ github.ref_name }}" $artifact --clobber

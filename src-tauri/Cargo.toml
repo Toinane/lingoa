@@ -5,6 +5,9 @@ description = "Lingoa — GitHub i18n Translation Tool"
 authors = []
 edition = "2021"
 
+[features]
+portable = []
+
 [lib]
 name = "lingoa_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
