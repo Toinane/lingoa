@@ -59,7 +59,10 @@ fn git_push_branch(repo_path: String, branch: String) -> Result<String, String> 
 #[tauri::command]
 fn git_push_branch_force(repo_path: String, branch: String) -> Result<String, String> {
     util::validate_branch_name(&branch)?;
-    run_git_cmd(&["push", "--force-with-lease", "origin", "--", &branch], &repo_path)
+    run_git_cmd(
+        &["push", "--force-with-lease", "origin", "--", &branch],
+        &repo_path,
+    )
 }
 
 /// Return true if a local branch with the given name already exists.
@@ -219,9 +222,7 @@ mod tests {
             .set_password("canary-value-12345")
             .expect("failed to write to keychain");
 
-        let read_back = entry
-            .get_password()
-            .expect("failed to read from keychain");
+        let read_back = entry.get_password().expect("failed to read from keychain");
 
         assert_eq!(
             read_back, "canary-value-12345",

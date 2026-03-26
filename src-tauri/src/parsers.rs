@@ -45,15 +45,33 @@ fn flatten_value(root: &Value, map: &mut IndexMap<String, TranslationValue>) {
     while let Some((prefix, value)) = stack.pop() {
         match value {
             Value::String(s) if !prefix.is_empty() => {
-                map.insert(prefix, TranslationValue { text: s.clone(), context: None });
+                map.insert(
+                    prefix,
+                    TranslationValue {
+                        text: s.clone(),
+                        context: None,
+                    },
+                );
             }
             // Preserve numeric and boolean i18n values as strings.
             // Arrays and null are silently skipped — no meaningful flat representation.
             Value::Number(n) if !prefix.is_empty() => {
-                map.insert(prefix, TranslationValue { text: n.to_string(), context: None });
+                map.insert(
+                    prefix,
+                    TranslationValue {
+                        text: n.to_string(),
+                        context: None,
+                    },
+                );
             }
             Value::Bool(b) if !prefix.is_empty() => {
-                map.insert(prefix, TranslationValue { text: b.to_string(), context: None });
+                map.insert(
+                    prefix,
+                    TranslationValue {
+                        text: b.to_string(),
+                        context: None,
+                    },
+                );
             }
             Value::Object(obj) => {
                 // Detect a structured { text: string, context?: string } leaf node
@@ -198,11 +216,17 @@ mod tests {
     use super::*;
 
     fn tv(text: &str) -> TranslationValue {
-        TranslationValue { text: text.to_string(), context: None }
+        TranslationValue {
+            text: text.to_string(),
+            context: None,
+        }
     }
 
     fn tv_ctx(text: &str, ctx: &str) -> TranslationValue {
-        TranslationValue { text: text.to_string(), context: Some(ctx.to_string()) }
+        TranslationValue {
+            text: text.to_string(),
+            context: Some(ctx.to_string()),
+        }
     }
 
     // ── parse_content ─────────────────────────────────────────────────────────
@@ -313,8 +337,10 @@ mod tests {
     fn round_trip_nested() {
         let json = r#"{"a": {"b": "hello"}, "c": "world"}"#;
         let flat = parse_content(json, false).unwrap();
-        let translations: IndexMap<String, String> =
-            flat.iter().map(|(k, v)| (k.clone(), v.text.clone())).collect();
+        let translations: IndexMap<String, String> = flat
+            .iter()
+            .map(|(k, v)| (k.clone(), v.text.clone()))
+            .collect();
         let restored = serialize_content(&translations, &flat, false).unwrap();
         let back = parse_content(&restored, false).unwrap();
         assert_eq!(flat, back);
@@ -324,8 +350,10 @@ mod tests {
     fn round_trip_preserves_context() {
         let json = r#"{"save": {"text": "Save", "context": "toolbar button"}}"#;
         let flat = parse_content(json, false).unwrap();
-        let translations: IndexMap<String, String> =
-            flat.iter().map(|(k, v)| (k.clone(), v.text.clone())).collect();
+        let translations: IndexMap<String, String> = flat
+            .iter()
+            .map(|(k, v)| (k.clone(), v.text.clone()))
+            .collect();
         let restored = serialize_content(&translations, &flat, false).unwrap();
         let back = parse_content(&restored, false).unwrap();
         assert_eq!(back["save"].context.as_deref(), Some("toolbar button"));

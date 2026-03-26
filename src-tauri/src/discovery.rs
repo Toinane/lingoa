@@ -12,7 +12,13 @@ pub struct DiscoveredFile {
 }
 
 const I18N_DIRS: &[&str] = &[
-    "i18n", "locales", "translations", "lang", "l10n", "locale", "intl",
+    "i18n",
+    "locales",
+    "translations",
+    "lang",
+    "l10n",
+    "locale",
+    "intl",
 ];
 
 /// Directories that are never useful to descend into.
@@ -149,8 +155,8 @@ pub fn discover_i18n_files(root: String) -> Result<Vec<DiscoveredFile>, String> 
         // Files outside i18n dirs must have locale in filename or locale parent dir
         if !in_i18n_dir {
             let locale_in_filename = filename_patterns().iter().any(|p| p.is_match(filename));
-            let parent_is_locale = parts.len() >= 2
-                && locale_dir_pat().is_match(parts[parts.len() - 2]);
+            let parent_is_locale =
+                parts.len() >= 2 && locale_dir_pat().is_match(parts[parts.len() - 2]);
             if !locale_in_filename && !parent_is_locale {
                 continue;
             }

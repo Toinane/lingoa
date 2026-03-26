@@ -19,7 +19,10 @@ pub fn validate_github_repo(repo: &str) -> Result<(), String> {
     if repo.is_empty() || repo.len() > 100 {
         return Err("GitHub repo name must be 1-100 characters".to_string());
     }
-    if !repo.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+    if !repo
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
         return Err("GitHub repo name contains invalid characters".to_string());
     }
     Ok(())

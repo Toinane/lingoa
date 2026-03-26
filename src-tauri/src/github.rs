@@ -43,8 +43,10 @@ impl GitHubApi {
         Ok(GitHubApi {
             client: http.0.clone(),
             // Do not include the token in the error string — it would leak via the IPC channel.
-            auth: HeaderValue::from_str(&format!("Bearer {token}"))
-                .map_err(|_| "Invalid token format — token must contain only printable ASCII characters".to_string())?,
+            auth: HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| {
+                "Invalid token format — token must contain only printable ASCII characters"
+                    .to_string()
+            })?,
         })
     }
 
@@ -52,16 +54,28 @@ impl GitHubApi {
         self.client
             .get(url)
             .header(AUTHORIZATION, self.auth.clone())
-            .header(ACCEPT, HeaderValue::from_static("application/vnd.github+json"))
-            .header("X-GitHub-Api-Version", HeaderValue::from_static("2022-11-28"))
+            .header(
+                ACCEPT,
+                HeaderValue::from_static("application/vnd.github+json"),
+            )
+            .header(
+                "X-GitHub-Api-Version",
+                HeaderValue::from_static("2022-11-28"),
+            )
     }
 
     fn post(&self, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
         self.client
             .post(url)
             .header(AUTHORIZATION, self.auth.clone())
-            .header(ACCEPT, HeaderValue::from_static("application/vnd.github+json"))
-            .header("X-GitHub-Api-Version", HeaderValue::from_static("2022-11-28"))
+            .header(
+                ACCEPT,
+                HeaderValue::from_static("application/vnd.github+json"),
+            )
+            .header(
+                "X-GitHub-Api-Version",
+                HeaderValue::from_static("2022-11-28"),
+            )
     }
 }
 
@@ -289,8 +303,7 @@ fn find_key_line(raw: &str, flat_key: &str, value: &str, is_yaml: bool) -> Optio
     for (i, line) in raw.lines().enumerate() {
         let trimmed = line.trim();
         let matched = if is_yaml {
-            trimmed.starts_with(&format!("{}: ", leaf))
-                || trimmed == format!("{}:", leaf).as_str()
+            trimmed.starts_with(&format!("{}: ", leaf)) || trimmed == format!("{}:", leaf).as_str()
         } else {
             // Escape the value as it would appear inside a JSON string.
             let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
@@ -369,9 +382,7 @@ pub async fn github_validate_token(
 
 /// Return the authenticated user's login using the token stored in the OS keychain.
 #[tauri::command]
-pub async fn github_get_user(
-    http: tauri::State<'_, GitHubHttp>,
-) -> Result<String, String> {
+pub async fn github_get_user(http: tauri::State<'_, GitHubHttp>) -> Result<String, String> {
     let api = GitHubApi::new(&http, &get_token()?)?;
     let resp = api
         .get("https://api.github.com/user")
@@ -430,7 +441,13 @@ pub async fn github_list_translation_prs(
                 .as_ref()
                 .map(|u| u.avatar_url.clone())
                 .unwrap_or_default();
-            Some(PrMeta { pr, locale, encoded_file_path, author, author_avatar })
+            Some(PrMeta {
+                pr,
+                locale,
+                encoded_file_path,
+                author,
+                author_avatar,
+            })
         })
         .collect();
 
@@ -482,8 +499,7 @@ pub async fn github_list_translation_prs(
     let contents: Vec<Option<ContentTuple>> = join_all(content_futures).await;
 
     // Build output — prs Vec and proposal index — no more async work below.
-    let meta_by_number: HashMap<u64, &PrMeta> =
-        metas.iter().map(|m| (m.pr.number, m)).collect();
+    let meta_by_number: HashMap<u64, &PrMeta> = metas.iter().map(|m| (m.pr.number, m)).collect();
 
     let prs: Vec<TranslationPR> = metas
         .iter()
@@ -568,7 +584,10 @@ pub async fn github_detect_fork(
     if upstream_owner.is_empty() || upstream_repo.is_empty() {
         return Ok(None);
     }
-    Ok(Some(ForkInfo { upstream_owner, upstream_repo }))
+    Ok(Some(ForkInfo {
+        upstream_owner,
+        upstream_repo,
+    }))
 }
 
 /// Create a pull request. Detects the default branch automatically.
@@ -741,7 +760,10 @@ pub async fn github_submit_review(
     if !resp.status().is_success() {
         let status = resp.status();
         let err_body: serde_json::Value = resp.json().await.unwrap_or_default();
-        let msg = err_body["message"].as_str().unwrap_or("unknown error").to_string();
+        let msg = err_body["message"]
+            .as_str()
+            .unwrap_or("unknown error")
+            .to_string();
         return Err(format!("Failed to submit review ({status}): {msg}"));
     }
     Ok(())
@@ -843,11 +865,13 @@ pub async fn github_fetch_pr_review_data(
         let rows: Vec<KeyRow> = translated_keys
             .into_iter()
             .map(|(key, val)| {
-                let source = source_keys.get(&key).map(|v| v.text.clone()).unwrap_or_default();
+                let source = source_keys
+                    .get(&key)
+                    .map(|v| v.text.clone())
+                    .unwrap_or_default();
                 let previous = prev_keys.get(&key).map(|v| v.text.clone());
-                let (line, raw_line) =
-                    find_key_line(&translated_content, &key, &val.text, is_yaml)
-                        .unwrap_or((0, String::new()));
+                let (line, raw_line) = find_key_line(&translated_content, &key, &val.text, is_yaml)
+                    .unwrap_or((0, String::new()));
                 KeyRow {
                     key,
                     source,
