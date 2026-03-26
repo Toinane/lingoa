@@ -16,6 +16,7 @@
     "rustc": ">=1.70.0"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

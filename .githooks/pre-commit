@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-commit: cargo fmt"
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+echo "pre-commit: cargo clippy"
+cargo clippy --manifest-path src-tauri/Cargo.toml --tests --quiet -- -D warnings
+
+echo "pre-commit: cargo test"
+cargo test --manifest-path src-tauri/Cargo.toml --lib --quiet
+
+echo "pre-commit: tsc"
+npx --yes tsc --noEmit
+
+echo "pre-commit: ok"

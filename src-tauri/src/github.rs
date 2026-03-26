@@ -1,6 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::future::join_all;
-use keyring;
 use reqwest::{
     header::{HeaderValue, ACCEPT, AUTHORIZATION},
     Client,
@@ -695,6 +694,7 @@ impl ReviewEvent {
 /// `event` must be one of APPROVE / COMMENT / REQUEST_CHANGES.
 /// `comments` entries with `line == 0` are silently skipped (line not in diff).
 /// `commit_id` is only included in the payload when there are valid inline comments.
+#[allow(clippy::too_many_arguments)] // Tauri commands receive each IPC field as a separate argument
 #[tauri::command]
 pub async fn github_submit_review(
     http: tauri::State<'_, GitHubHttp>,
