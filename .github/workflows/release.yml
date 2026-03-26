@@ -91,17 +91,24 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Lingoa ${{ github.ref_name }}"
           releaseBody: |
+            ## What's new
+
+            <!-- Add release notes here before publishing -->
+
+            ---
+
             Download the installer for your platform below.
 
             | Platform | File |
             |---|---|
-            | Windows x64 | `Lingoa_x.x.x_x64-setup.exe` |
-            | Windows ARM64 | `Lingoa_x.x.x_arm64-setup.exe` |
+            | Windows x64 | `Lingoa_x.x.x_x64-setup.exe` or `Lingoa_x.x.x_x64_en-US.msi` |
+            | Windows ARM64 | `Lingoa_x.x.x_arm64-setup.exe` or `Lingoa_x.x.x_arm64_en-US.msi` |
             | macOS (Universal) | `Lingoa_x.x.x_universal.dmg` |
-            | Linux | `lingoa_x.x.x_amd64.AppImage` |
+            | Linux | `Lingoa_x.x.x_amd64.AppImage` or `Lingoa_x.x.x_amd64.deb` or `Lingoa-x.x.x-1.x86_64.rpm` |
 
-            **Portable Version**
-            The portable version doesn't require installation and can be run directly. Note that it won't receive automatic updates. Requires [Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) to be installed on Windows (installed by default on most Windows 10+ systems).
+            **Portable (Windows only — no install required)**
+
+            The portable version runs directly without installation but won't receive automatic updates. Requires [Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (pre-installed on Windows 10+).
 
             | Platform | File |
             |---|---|
