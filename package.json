@@ -4,7 +4,7 @@
   "author": "Toinane",
   "bugs": "https://github.com/Toinane/lingoa/issues",
   "homepage": "https://github.com/Toinane/lingoa",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "os": [
     "win32",
