@@ -20,7 +20,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "portable": "tauri build --no-bundle --features portable",
+    "version": "node scripts/version-bump.mjs && git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.23",
