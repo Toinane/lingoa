@@ -32,6 +32,9 @@ export function getT(): Locale {
  * Interpolate a template string with named parameters.
  * Example: interp("{{n}} keys", { n: 5 }) → "5 keys"
  */
-export function interp(template: string, params: Record<string, string | number>): string {
+export function interp(
+  template: string,
+  params: Record<string, string | number>,
+): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => String(params[k] ?? ""));
 }

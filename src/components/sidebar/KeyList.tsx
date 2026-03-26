@@ -1,9 +1,17 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEditorStore } from "../../stores/editorStore";
 import { useT, interp } from "../../i18n";
 import type { KeyState, TranslationKeyWithState } from "../../types";
+import { IconTriangleRight } from "../Icons";
 import KeyItem from "./KeyItem";
+import { STATE_COLORS, worstStateOf } from "../../constants/keyState";
 
 type Filter = "all" | KeyState;
 
@@ -26,46 +34,11 @@ type VirtualRow = GroupHeaderRow | KeyRow;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const STATE_COLORS: Record<KeyState, string> = {
-  translated: "#3fb950",
-  "own-pending": "#d29922",
-  "other-pending": "#58a6ff",
-  untranslated: "#f85149",
-};
-
-/** Numeric priority — lower = worse.  Used for O(n) single-pass worst detection. */
-const STATE_RANK: Record<KeyState, number> = {
-  untranslated: 0,
-  "other-pending": 1,
-  "own-pending": 2,
-  translated: 3,
-};
-const RANK_TO_STATE: KeyState[] = [
-  "untranslated",
-  "other-pending",
-  "own-pending",
-  "translated",
-];
-
-/** Return the worst (lowest-ranked) state in a group.
- *  Single O(n) pass with an early-exit when the floor is reached. */
-function worstStateOf(keys: TranslationKeyWithState[]): KeyState {
-  let worst = 3; // start optimistic
-  for (const k of keys) {
-    const r = STATE_RANK[k.state];
-    if (r < worst) {
-      worst = r;
-      if (worst === 0) break; // "untranslated" is the floor — no need to continue
-    }
-  }
-  return RANK_TO_STATE[worst];
-}
-
 function buildRows(
   visible: TranslationKeyWithState[],
   filteredIndex: Map<string, number>,
   closedGroups: Set<string>,
-  isSearching: boolean
+  isSearching: boolean,
 ): VirtualRow[] {
   // While searching: flat sorted list, no group structure
   if (isSearching) {
@@ -105,7 +78,7 @@ function buildRows(
 
   // Namespace groups – sorted alphabetically
   for (const [name, ks] of [...groups.entries()].sort(([a], [b]) =>
-    a.localeCompare(b)
+    a.localeCompare(b),
   )) {
     const isOpen = !closedGroups.has(name);
     rows.push({
@@ -139,11 +112,11 @@ const FILTERS: {
   label_key: keyof ReturnType<typeof useT>["keyList"]["filters"];
   color: string | null;
 }[] = [
-  { value: "all",           label_key: "all",    color: null      },
-  { value: "untranslated",  label_key: "todo",   color: "#f85149" },
+  { value: "all", label_key: "all", color: null },
+  { value: "untranslated", label_key: "todo", color: "#f85149" },
   { value: "other-pending", label_key: "review", color: "#58a6ff" },
-  { value: "own-pending",   label_key: "mine",   color: "#d29922" },
-  { value: "translated",    label_key: "done",   color: "#3fb950" },
+  { value: "own-pending", label_key: "mine", color: "#d29922" },
+  { value: "translated", label_key: "done", color: "#3fb950" },
 ];
 
 // 2×2 grid of state-color dots shown for the "All" filter in compact mode
@@ -202,21 +175,24 @@ export default function KeyList() {
     });
   }, []);
 
-  const visibleKeys =
-    activeFilter === "all"
-      ? filteredKeys
-      : filteredKeys.filter((k) => k.state === activeFilter);
+  const visibleKeys = useMemo(
+    () =>
+      activeFilter === "all"
+        ? filteredKeys
+        : filteredKeys.filter((k) => k.state === activeFilter),
+    [filteredKeys, activeFilter],
+  );
 
   // Pre-compute key → storeIndex once per filteredKeys change (O(n)) so
   // buildRows doesn't call indexOf() per item (which would be O(n²)).
   const filteredIndex = useMemo(
     () => new Map(filteredKeys.map((k, i) => [k.key, i])),
-    [filteredKeys]
+    [filteredKeys],
   );
 
   const rows = useMemo(
     () => buildRows(visibleKeys, filteredIndex, closedGroups, !!searchQuery),
-    [visibleKeys, filteredIndex, closedGroups, searchQuery]
+    [visibleKeys, filteredIndex, closedGroups, searchQuery],
   );
 
   const virtualizer = useVirtualizer({
@@ -249,7 +225,7 @@ export default function KeyList() {
   // Scroll to the selected key row only when the selection itself changes
   useEffect(() => {
     const rowIdx = rows.findIndex(
-      (r) => r.type === "key" && r.item.key === selectedKey?.key
+      (r) => r.type === "key" && r.item.key === selectedKey?.key,
     );
     if (rowIdx >= 0) {
       virtualizer.scrollToIndex(rowIdx, { align: "auto" });
@@ -289,7 +265,10 @@ export default function KeyList() {
       </div>
 
       {/* Filter tabs — compact (dots) when the bar is too narrow for labels */}
-      <div ref={filterBarRef} className="flex shrink-0 border-b border-app-border">
+      <div
+        ref={filterBarRef}
+        className="flex shrink-0 border-b border-app-border"
+      >
         {FILTERS.map((f) => {
           const label = t.keyList.filters[f.label_key];
           const isActive = activeFilter === f.value;
@@ -336,7 +315,9 @@ export default function KeyList() {
             {searchQuery ? t.keyList.noKeysSearch : t.keyList.noKeysCategory}
           </div>
         ) : (
-          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          <div
+            style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+          >
             {virtualizer.getVirtualItems().map((vItem) => {
               const row = rows[vItem.index];
               return (
@@ -372,7 +353,7 @@ export default function KeyList() {
 
 // ─── Group header ─────────────────────────────────────────────────────────────
 
-function GroupHeader({
+const GroupHeader = React.memo(function GroupHeader({
   row,
   onToggle,
 }: {
@@ -384,29 +365,16 @@ function GroupHeader({
       onClick={() => onToggle(row.name)}
       className="w-full h-full flex items-center gap-2 px-3 bg-app-surface border-b border-app-border hover:bg-app-surface-2 transition-colors"
     >
-      {/* Chevron */}
-      <svg
-        className="shrink-0 text-app-muted transition-transform"
+      <IconTriangleRight
+        className="shrink-0 w-2.5 h-2.5 text-app-muted transition-transform"
         style={{ transform: row.isOpen ? "rotate(90deg)" : "rotate(0deg)" }}
-        width="10"
-        height="10"
-        viewBox="0 0 10 10"
-        fill="currentColor"
-      >
-        <path d="M3 2l4 3-4 3V2z" />
-      </svg>
-
-      {/* Group name */}
+      />
       <span className="flex-1 min-w-0 text-xs font-medium text-app-text truncate text-left">
         {row.name}
       </span>
-
-      {/* Key count */}
       <span className="shrink-0 text-xs text-app-muted tabular-nums">
         {row.count}
       </span>
-
-      {/* Worst-state indicator */}
       <span
         className="shrink-0 w-2 h-2 rounded-full"
         style={{ backgroundColor: STATE_COLORS[row.worstState] }}
@@ -414,4 +382,4 @@ function GroupHeader({
       />
     </button>
   );
-}
+});

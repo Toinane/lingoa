@@ -6,9 +6,8 @@ import { useT } from "../../i18n";
 const DEBOUNCE_MS = 600;
 
 export default function TranslationInput() {
-  const {
-    selectedKey, editBuffer, setEditBuffer, saveCurrentKey,
-  } = useEditorStore();
+  const { selectedKey, editBuffer, setEditBuffer, saveCurrentKey } =
+    useEditorStore();
   const { spellCheckDefault } = useSettingsStore();
   const t = useT();
 
@@ -18,7 +17,9 @@ export default function TranslationInput() {
   const [spellCheck, setSpellCheck] = useState(spellCheckDefault);
   const [justSaved, setJustSaved] = useState(false);
 
-  useEffect(() => { setSpellCheck(spellCheckDefault); }, [spellCheckDefault]);
+  useEffect(() => {
+    setSpellCheck(spellCheckDefault);
+  }, [spellCheckDefault]);
 
   // On mount (which happens on every key change due to key={selectedKey.key} in the parent):
   // focus the textarea and auto-size it to the initial content.
@@ -41,14 +42,17 @@ export default function TranslationInput() {
     savedTimerRef.current = setTimeout(() => setJustSaved(false), 1500);
   }, []);
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setEditBuffer(e.target.value);
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      await saveCurrentKey();
-      flashSaved();
-    }, DEBOUNCE_MS);
-  }, [setEditBuffer, saveCurrentKey, flashSaved]);
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setEditBuffer(e.target.value);
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(async () => {
+        await saveCurrentKey();
+        flashSaved();
+      }, DEBOUNCE_MS);
+    },
+    [setEditBuffer, saveCurrentKey, flashSaved],
+  );
 
   const sourceLen = selectedKey?.source.length ?? 0;
   const targetLen = editBuffer.length;
@@ -78,10 +82,16 @@ export default function TranslationInput() {
 
       <div className="flex items-center justify-between mt-2">
         <div className="flex items-center gap-3">
-          <span className="text-app-muted text-xs">{sourceLen} · {targetLen}</span>
+          <span className="text-app-muted text-xs">
+            {sourceLen} · {targetLen}
+          </span>
           <button
             onClick={() => setSpellCheck((v) => !v)}
-            title={spellCheck ? t.editor.spellcheckDisable : t.editor.spellcheckEnable}
+            title={
+              spellCheck
+                ? t.editor.spellcheckDisable
+                : t.editor.spellcheckEnable
+            }
             className={`text-[10px] font-mono transition-all px-1.5 py-0.5 rounded border ${
               spellCheck
                 ? "text-app-text border-app-border bg-app-surface-2 underline decoration-wavy decoration-key-red"
@@ -92,9 +102,11 @@ export default function TranslationInput() {
           </button>
         </div>
 
-        <span className={`text-xs transition-all duration-300 ${
-          justSaved ? "text-key-green opacity-100" : "opacity-0"
-        }`}>
+        <span
+          className={`text-xs transition-all duration-300 ${
+            justSaved ? "text-key-green opacity-100" : "opacity-0"
+          }`}
+        >
           ✓ {t.editor.saved}
         </span>
       </div>

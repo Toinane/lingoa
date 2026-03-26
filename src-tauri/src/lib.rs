@@ -7,22 +7,30 @@ mod parsers;
 mod util;
 
 /// Run a git command with a fixed argv, returning trimmed stdout or stderr as Err.
+/// Raw stderr is logged internally; only a sanitised message is returned to callers
+/// to avoid leaking absolute file-system paths in IPC error responses.
 fn run_git_cmd(args: &[&str], cwd: &str) -> Result<String, String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)
         .output()
-        .map_err(|e| format!("Failed to execute git: {e}"))?;
+        .map_err(|_| "Failed to execute git — is git installed and on PATH?".to_string())?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        let raw = String::from_utf8_lossy(&output.stderr);
+        eprintln!("[lingoa] git stderr: {}", raw.trim());
+        // Surface the raw git message to the user; it is their own machine and repo,
+        // so git's diagnostic text is appropriate and useful.  Strip the trailing
+        // newline that git often appends, but do not otherwise alter the message.
+        Err(raw.trim().to_string())
     }
 }
 
 /// Create and switch to a new branch (git checkout -b <branch>).
 #[tauri::command]
 fn git_checkout_new_branch(repo_path: String, branch: String) -> Result<String, String> {
+    util::validate_branch_name(&branch)?;
     run_git_cmd(&["checkout", "-b", &branch], &repo_path)
 }
 
@@ -43,18 +51,21 @@ fn git_commit(repo_path: String, message: String) -> Result<String, String> {
 /// The `--` separator ensures the branch name is never misinterpreted as a git flag.
 #[tauri::command]
 fn git_push_branch(repo_path: String, branch: String) -> Result<String, String> {
+    util::validate_branch_name(&branch)?;
     run_git_cmd(&["push", "origin", "--", &branch], &repo_path)
 }
 
 /// Push a branch with --force-with-lease (safe force push for amendment workflows).
 #[tauri::command]
 fn git_push_branch_force(repo_path: String, branch: String) -> Result<String, String> {
+    util::validate_branch_name(&branch)?;
     run_git_cmd(&["push", "--force-with-lease", "origin", "--", &branch], &repo_path)
 }
 
 /// Return true if a local branch with the given name already exists.
 #[tauri::command]
 fn git_branch_exists(repo_path: String, branch: String) -> Result<bool, String> {
+    util::validate_branch_name(&branch)?;
     Ok(run_git_cmd(
         &["rev-parse", "--verify", &format!("refs/heads/{}", branch)],
         &repo_path,
@@ -65,6 +76,7 @@ fn git_branch_exists(repo_path: String, branch: String) -> Result<bool, String> 
 /// Switch to an existing local branch (git checkout <branch>).
 #[tauri::command]
 fn git_checkout(repo_path: String, branch: String) -> Result<String, String> {
+    util::validate_branch_name(&branch)?;
     run_git_cmd(&["checkout", &branch], &repo_path)
 }
 
@@ -136,6 +148,8 @@ pub fn run() {
     tauri::Builder::default()
         .manage(http)
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             use tauri::Manager;
             let window = app
@@ -191,8 +205,9 @@ pub fn run() {
 mod tests {
     /// Full keychain round-trip: write → read → delete.
     /// Uses a dedicated test entry so the real token is never touched.
-    /// Run with: cargo test --lib
+    /// Run with: cargo test --lib -- --include-ignored
     #[test]
+    #[ignore = "requires OS credential store (Windows Credential Manager, macOS Keychain, etc.)"]
     fn keychain_roundtrip() {
         let entry = keyring::Entry::new("lingoa-test", "keychain-roundtrip")
             .expect("failed to create keyring entry");
@@ -226,10 +241,11 @@ mod tests {
 
     /// Visibility test: writes a credential and LEAVES IT so you can verify
     /// it appears in Windows Credential Manager before the next test cleans it up.
-    /// Run with: cargo test --lib keychain_visible -- --nocapture
+    /// Run with: cargo test --lib keychain_visible -- --nocapture --include-ignored
     /// Then open Credential Manager > Windows Credentials > Generic Credentials
     /// and look for "lingoa-visible". Run the cleanup test afterward.
     #[test]
+    #[ignore = "requires OS credential store (Windows Credential Manager, macOS Keychain, etc.)"]
     fn keychain_visible() {
         let entry = keyring::Entry::new("lingoa-visible", "check-me")
             .expect("failed to create keyring entry");
@@ -247,6 +263,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires OS credential store (Windows Credential Manager, macOS Keychain, etc.)"]
     fn keychain_visible_cleanup() {
         let entry = keyring::Entry::new("lingoa-visible", "check-me")
             .expect("failed to create keyring entry");

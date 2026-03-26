@@ -59,7 +59,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ currentUser: user, isLoading: false });
       useAppStore.getState().setView("home");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "Failed to save token";
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "string"
+            ? e
+            : "Failed to save token";
       set({ isLoading: false, error: msg });
     }
   },
@@ -69,7 +74,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
-    await tauriKeychain.delete().catch(() => {});
+    await tauriKeychain.delete().catch((e: unknown) => {
+      console.debug("[lingoa] Token deletion on logout failed:", e);
+    });
     set({ currentUser: null });
     useAppStore.getState().setView("token-setup");
   },

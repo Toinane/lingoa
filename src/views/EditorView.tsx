@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import KeyList from "../components/sidebar/KeyList";
 import TranslationEditor from "../components/editor/TranslationEditor";
+import ShortcutBar from "../components/editor/ShortcutBar";
 import { useEditorStore } from "../stores/editorStore";
 import { useRepoStore } from "../stores/repoStore";
 import { useAuthStore } from "../stores/authStore";
@@ -9,6 +10,24 @@ import { getTargetLocales } from "../lib/discovery";
 import { buildBranchName } from "../lib/git";
 import { openExternal } from "../lib/tauri";
 import { useT, interp } from "../i18n";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
+import AppModal from "../components/AppModal";
+
+interface PRModalState {
+  show: boolean;
+  submitting: boolean;
+  url: string | null;
+  error: string | null;
+  userNote: string;
+}
+
+const PR_MODAL_INITIAL: PRModalState = {
+  show: false,
+  submitting: false,
+  url: null,
+  error: null,
+  userNote: "",
+};
 
 export default function EditorView() {
   const {
@@ -17,6 +36,7 @@ export default function EditorView() {
     loadEditor,
     sourceFile,
     targetLocale,
+    isLoading,
     saveCurrentKey,
     saveAndNext,
     nextKey,
@@ -26,33 +46,10 @@ export default function EditorView() {
   const { isLoading: prLoading } = usePRStore();
   const currentUser = useAuthStore((s) => s.currentUser);
   const t = useT();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [prUrl, setPrUrl] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [showPRConfirm, setShowPRConfirm] = useState(false);
-  const [isSwitching, setIsSwitching] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const stored = localStorage.getItem("lingoa-sidebar-width");
-    return stored ? parseInt(stored, 10) : 288;
-  });
 
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      let w = sidebarWidth;
-      const onMove = (ev: MouseEvent) => {
-        w = Math.min(Math.max(ev.clientX, 180), 520);
-        setSidebarWidth(w);
-      };
-      const onUp = () => {
-        localStorage.setItem("lingoa-sidebar-width", String(w));
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [sidebarWidth],
+  const [prModal, setPrModal] = useState<PRModalState>(PR_MODAL_INITIAL);
+  const { width: sidebarWidth, handleResizeStart } = useResizableSidebar(
+    "lingoa-sidebar-width",
   );
 
   // Global keyboard shortcuts — work anywhere in the editor, except search/select inputs
@@ -62,64 +59,68 @@ export default function EditorView() {
       const isTextField = tag === "INPUT" || tag === "SELECT";
       if (e.shiftKey && e.key === "ArrowDown" && !isTextField) {
         e.preventDefault();
-        saveCurrentKey().then(() => nextKey());
+        void saveCurrentKey().then(() => nextKey());
       } else if (e.shiftKey && e.key === "ArrowUp" && !isTextField) {
         e.preventDefault();
-        saveCurrentKey().then(() => prevKey());
+        void saveCurrentKey().then(() => prevKey());
       } else if (e.ctrlKey && e.key === "Enter") {
         e.preventDefault();
-        saveAndNext();
+        void saveAndNext();
       } else if (e.ctrlKey && e.key === "s") {
         e.preventDefault();
-        saveCurrentKey();
+        void saveCurrentKey();
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [saveCurrentKey, saveAndNext, nextKey, prevKey]);
 
-  const translatedCount = keys.filter((k) => k.editorTranslation).length;
+  const translatedCount = useMemo(
+    () => keys.filter((k) => k.editorTranslation).length,
+    [keys],
+  );
   const totalCount = keys.length;
 
   // Source files = all files sharing the current source locale
   const sourceLocale = sourceFile?.locale ?? "en";
-  const sourceFiles = files.filter((f) => f.locale === sourceLocale);
-  const targetLocales = getTargetLocales(files, sourceLocale);
+  const sourceFiles = useMemo(
+    () => files.filter((f) => f.locale === sourceLocale),
+    [files, sourceLocale],
+  );
+  const targetLocales = useMemo(
+    () => getTargetLocales(files, sourceLocale),
+    [files, sourceLocale],
+  );
 
   const handleFileChange = async (relativePath: string) => {
     if (!targetLocale || !repoPath) return;
     const newFile = files.find((f) => f.relativePath === relativePath);
     if (!newFile || newFile.relativePath === sourceFile?.relativePath) return;
-    setIsSwitching(true);
-    try {
-      await loadEditor(newFile, targetLocale, currentUser, repoPath);
-    } finally {
-      setIsSwitching(false);
-    }
+    await loadEditor(newFile, targetLocale, currentUser, repoPath);
   };
 
   const handleLocaleChange = async (newLocale: string) => {
-    if (!sourceFile || !repoPath) return;
-    if (newLocale === targetLocale) return;
-    setIsSwitching(true);
-    try {
-      await loadEditor(sourceFile, newLocale, currentUser, repoPath);
-    } finally {
-      setIsSwitching(false);
-    }
+    if (!sourceFile || !repoPath || newLocale === targetLocale) return;
+    await loadEditor(sourceFile, newLocale, currentUser, repoPath);
   };
 
   const handleSubmitPR = async () => {
-    setIsSubmitting(true);
-    setSubmitError(null);
+    setPrModal((s) => ({ ...s, submitting: true, error: null }));
     try {
-      const url = await submitPR();
-      setPrUrl(url);
-      setShowPRConfirm(false);
+      const url = await submitPR(prModal.userNote);
+      setPrModal({
+        show: false,
+        submitting: false,
+        url,
+        error: null,
+        userNote: "",
+      });
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "Failed to create PR");
-    } finally {
-      setIsSubmitting(false);
+      setPrModal((s) => ({
+        ...s,
+        submitting: false,
+        error: e instanceof Error ? e.message : "Failed to create PR",
+      }));
     }
   };
 
@@ -137,7 +138,7 @@ export default function EditorView() {
             <select
               value={sourceFile?.relativePath ?? ""}
               onChange={(e) => handleFileChange(e.target.value)}
-              disabled={isSwitching}
+              disabled={isLoading}
               className="w-full bg-app-base border border-app-border rounded px-2 py-1 text-app-text text-xs font-mono focus:outline-none focus:border-app-accent transition-colors disabled:opacity-50"
             >
               {sourceFiles.map((f) => (
@@ -159,7 +160,7 @@ export default function EditorView() {
               <select
                 value={targetLocale ?? ""}
                 onChange={(e) => handleLocaleChange(e.target.value)}
-                disabled={isSwitching}
+                disabled={isLoading}
                 className="flex-1 bg-app-base border border-app-border rounded px-2 py-1 text-app-text text-xs focus:outline-none focus:border-app-accent transition-colors disabled:opacity-50"
               >
                 {targetLocale && !targetLocales.includes(targetLocale) && (
@@ -179,7 +180,7 @@ export default function EditorView() {
             </div>
           )}
 
-          {isSwitching && (
+          {isLoading && (
             <div className="text-app-muted text-xs animate-pulse">
               {t.editor.switching}
             </div>
@@ -193,13 +194,13 @@ export default function EditorView() {
 
         {/* Submit PR footer */}
         <div className="p-3 border-t border-app-border shrink-0">
-          {prUrl ? (
+          {prModal.url ? (
             <div className="text-center">
               <p className="text-key-green text-xs mb-1">
                 {t.editor.prCreated}
               </p>
               <button
-                onClick={() => prUrl && openExternal(prUrl)}
+                onClick={() => openExternal(prModal.url!)}
                 className="text-app-accent text-xs hover:underline"
               >
                 {t.editor.viewOnGitHub}
@@ -207,7 +208,7 @@ export default function EditorView() {
             </div>
           ) : repoInfo && currentUser ? (
             <button
-              onClick={() => setShowPRConfirm(true)}
+              onClick={() => setPrModal((s) => ({ ...s, show: true }))}
               disabled={translatedCount === 0}
               className="w-full bg-key-green/90 hover:bg-key-green disabled:opacity-40 disabled:cursor-not-allowed text-black text-xs font-semibold py-2 px-3 rounded-md transition-colors"
             >
@@ -238,8 +239,13 @@ export default function EditorView() {
       <ShortcutBar />
 
       {/* PR confirmation modal */}
-      {showPRConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      {prModal.show && (
+        <AppModal
+          onClose={() => {
+            if (!prModal.submitting)
+              setPrModal((s) => ({ ...s, show: false, error: null }));
+          }}
+        >
           <div className="w-full max-w-sm bg-app-surface border border-app-border rounded-xl shadow-2xl p-5">
             <h2 className="text-app-text font-semibold text-sm mb-4">
               {t.editor.confirmPR}
@@ -267,65 +273,49 @@ export default function EditorView() {
                   {t.editor.confirmPRBody}
                 </p>
               </div>
+              <div>
+                <p className="text-app-muted text-xs uppercase tracking-wider mb-1">
+                  {t.editor.confirmPRNote}
+                </p>
+                <textarea
+                  value={prModal.userNote}
+                  onChange={(e) =>
+                    setPrModal((s) => ({ ...s, userNote: e.target.value }))
+                  }
+                  placeholder={t.editor.confirmPRNotePlaceholder}
+                  rows={3}
+                  className="w-full bg-app-base border border-app-border rounded px-2 py-1.5 text-app-text placeholder-app-muted text-xs resize-none focus:outline-none focus:border-app-accent transition-colors"
+                />
+              </div>
             </div>
 
-            {submitError && (
-              <p className="text-key-red text-xs mb-3">{submitError}</p>
+            {prModal.error && (
+              <p className="text-key-red text-xs mb-3">{prModal.error}</p>
             )}
 
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => {
-                  setShowPRConfirm(false);
-                  setSubmitError(null);
-                }}
-                disabled={isSubmitting}
+                onClick={() =>
+                  setPrModal((s) => ({ ...s, show: false, error: null }))
+                }
+                disabled={prModal.submitting}
                 className="px-4 py-2 text-app-muted hover:text-app-text text-xs transition-colors disabled:opacity-50"
               >
                 {t.editor.confirmPRCancel}
               </button>
               <button
                 onClick={handleSubmitPR}
-                disabled={isSubmitting}
+                disabled={prModal.submitting}
                 className="px-4 py-2 bg-key-green/90 hover:bg-key-green disabled:opacity-40 text-black text-xs font-semibold rounded-md transition-colors"
               >
-                {isSubmitting ? t.editor.creatingPR : t.editor.confirmPRConfirm}
+                {prModal.submitting
+                  ? t.editor.creatingPR
+                  : t.editor.confirmPRConfirm}
               </button>
             </div>
           </div>
-        </div>
+        </AppModal>
       )}
-    </div>
-  );
-}
-
-function ShortcutBar() {
-  const t = useT();
-
-  const shortcuts = [
-    { keys: ["Ctrl", "↵"], label: t.editor.saveAndNextHint },
-    { keys: ["Shift", "↓↑"], label: t.editor.saveAndNavigateHint },
-    { keys: ["Ctrl", "S"], label: t.editor.saveNowHint },
-  ];
-
-  return (
-    <div className="fixed bottom-3 right-4 flex items-center gap-3 pointer-events-none select-none">
-      {shortcuts.map(({ keys, label }) => (
-        <span
-          key={label}
-          className="flex items-center gap-1 text-app-muted/50 text-[10px]"
-        >
-          {keys.map((k) => (
-            <kbd
-              key={k}
-              className="bg-app-surface border border-app-border/50 rounded px-1 py-px text-[10px] font-mono leading-tight"
-            >
-              {k}
-            </kbd>
-          ))}
-          <span>{label}</span>
-        </span>
-      ))}
     </div>
   );
 }

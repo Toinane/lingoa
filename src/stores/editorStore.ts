@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { isForkedRepo } from "../types";
+import { getTargetRepo } from "../types";
 import type {
   TranslationFile,
   TranslationKeyWithState,
@@ -7,10 +7,17 @@ import type {
 } from "../types";
 import type { TranslationValue } from "../types";
 import { tauriFs, tauriGit, tauriParsers, tauriGitHub } from "../lib/tauri";
-import { deriveTargetPath, buildBranchName, ensureBranchAndPush } from "../lib/git";
+import {
+  deriveTargetPath,
+  buildBranchName,
+  ensureBranchAndPush,
+} from "../lib/git";
 import { createPR } from "../lib/github";
 import { usePRStore } from "./prStore";
 import { useRepoStore } from "./repoStore";
+import { useSettingsStore } from "./settingsStore";
+
+const SECONDARY_LOCALE_KEY = "lingoa:secondary-source-locale";
 
 interface EditorState {
   sourceFile: TranslationFile | null;
@@ -34,11 +41,17 @@ interface EditorState {
   isLoading: boolean;
   error: string | null;
 
+  /** Optional second reference locale shown alongside the primary source. */
+  secondaryLocale: string | null;
+  /** Flat key → text for the secondary locale file. null = not loaded yet. */
+  secondaryTranslations: Record<string, string> | null;
+  setSecondaryLocale: (locale: string | null) => Promise<void>;
+
   loadEditor: (
     sourceFile: TranslationFile,
     targetLocale: string,
     currentUser: string | null,
-    repoPath: string
+    repoPath: string,
   ) => Promise<void>;
   selectKey: (index: number) => Promise<void>;
   nextKey: () => Promise<void>;
@@ -47,7 +60,7 @@ interface EditorState {
   saveCurrentKey: () => Promise<void>;
   saveAndNext: () => Promise<void>;
   setSearchQuery: (query: string) => Promise<void>;
-  submitPR: () => Promise<string>;
+  submitPR: (userNote: string) => Promise<string>;
 }
 
 function fileFormat(path: string): string {
@@ -57,15 +70,96 @@ function fileFormat(path: string): string {
 /** Pure derivation of filtered keys from the full key list and a search query.
  *  Keeping this as a standalone function ensures every code path that updates
  *  `keys` or `searchQuery` derives `filteredKeys` consistently. */
+/**
+ * Derives the display state for a key given the current edit-buffer text.
+ * Used on save — differs from load-time derivation because it works with the
+ * in-flight buffer value rather than persisted head/local translations.
+ */
+function deriveKeyState(
+  k: TranslationKeyWithState,
+  text: string,
+  ownPRNumbers: Set<number>,
+): KeyState {
+  if (text && text === k.headTranslation) return "translated";
+  if (text) return "own-pending";
+  if (k.proposals.some((p) => !ownPRNumbers.has(p.prNumber)))
+    return "other-pending";
+  return "untranslated";
+}
+
 function computeFiltered(
   keys: TranslationKeyWithState[],
-  query: string
+  query: string,
 ): TranslationKeyWithState[] {
   if (!query) return keys;
   const q = query.toLowerCase();
   return keys.filter(
-    (k) => k.key.toLowerCase().includes(q) || k.source.toLowerCase().includes(q)
+    (k) =>
+      k.key.toLowerCase().includes(q) || k.source.toLowerCase().includes(q),
   );
+}
+
+function buildProgressBar(translated: number, total: number): string {
+  if (total === 0) return "░".repeat(16);
+  const filled = Math.round((translated / total) * 16);
+  return "█".repeat(filled) + "░".repeat(16 - filled);
+}
+
+function buildPRBody(
+  sourceFile: TranslationFile,
+  targetLocale: string,
+  keys: TranslationKeyWithState[],
+  userNote: string,
+  prTipEnabled: boolean,
+): string {
+  const fileName =
+    sourceFile.relativePath.split("/").pop() ?? sourceFile.relativePath;
+  const total = keys.length;
+  const translated = keys.filter((k) => k.editorTranslation !== null).length;
+  const newKeys = keys.filter(
+    (k) => k.editorTranslation !== null && k.headTranslation === undefined,
+  ).length;
+  const updatedKeys = keys.filter(
+    (k) =>
+      k.editorTranslation !== null &&
+      k.headTranslation !== undefined &&
+      k.editorTranslation !== k.headTranslation,
+  ).length;
+  const pct = total > 0 ? Math.round((translated / total) * 100) : 0;
+  const bar = buildProgressBar(translated, total);
+
+  const lines: string[] = [];
+  lines.push(`## \`${fileName}\` translations`);
+  lines.push("");
+
+  if (userNote.trim()) {
+    lines.push(userNote.trim());
+    lines.push("");
+    lines.push("#");
+    lines.push("");
+  }
+
+  lines.push("### Stats");
+  lines.push("");
+  lines.push(`${translated} / ${total} keys translated \`${bar}\` **${pct}%**`);
+  lines.push("");
+  lines.push("| | |");
+  lines.push("|---|---|");
+  lines.push(`| Target locale | \`${targetLocale}\` |`);
+  if (newKeys > 0) lines.push(`| Translated | ${newKeys} keys |`);
+  if (updatedKeys > 0) lines.push(`| Updated | ${updatedKeys} keys |`);
+
+  if (prTipEnabled) {
+    lines.push("");
+    lines.push("#");
+    lines.push("");
+    lines.push("> [!TIP]");
+    lines.push(
+      "> For an easier review, open this PR in [Lingoa app](https://github.com/Toinane/lingoa). Each key is shown alongside the source string and previous translation.",
+    );
+  }
+
+  return lines.join("\n");
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -84,6 +178,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isDirty: false,
   isLoading: false,
   error: null,
+  secondaryLocale: null,
+  secondaryTranslations: null,
+
+  setSecondaryLocale: async (locale) => {
+    if (!locale) {
+      localStorage.removeItem(SECONDARY_LOCALE_KEY);
+      set({ secondaryLocale: null, secondaryTranslations: null });
+      return;
+    }
+    const { sourceFile, repoPath } = get();
+    if (!sourceFile || !repoPath) return;
+    const secondaryPath = deriveTargetPath(
+      sourceFile.relativePath,
+      sourceFile.locale,
+      locale,
+    );
+    const fmt = fileFormat(secondaryPath);
+    try {
+      const content = await tauriFs.readFile(repoPath, secondaryPath);
+      const parsed = await tauriParsers.parse(content, fmt);
+      const translations: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) translations[k] = v.text;
+      localStorage.setItem(SECONDARY_LOCALE_KEY, locale);
+      set({ secondaryLocale: locale, secondaryTranslations: translations });
+    } catch {
+      // File doesn't exist for this locale — store locale anyway, show blanks
+      localStorage.setItem(SECONDARY_LOCALE_KEY, locale);
+      set({ secondaryLocale: locale, secondaryTranslations: {} });
+    }
+  },
 
   loadEditor: async (sourceFile, targetLocale, currentUser, repoPath) => {
     set({ isLoading: true, error: null });
@@ -92,19 +216,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const targetRelPath = deriveTargetPath(
         sourceFile.relativePath,
         sourceFile.locale,
-        targetLocale
+        targetLocale,
       );
 
       // Fire all three read+parse chains concurrently — they are fully independent.
       // Total latency = max(source, target, HEAD) instead of their sum.
       const empty = {} as Record<string, TranslationValue>;
       const [sourceKeys, localKeys, headKeys] = await Promise.all([
-        tauriFs.readFile(repoPath, sourceFile.relativePath)
+        tauriFs
+          .readFile(repoPath, sourceFile.relativePath)
           .then((c) => tauriParsers.parse(c, fmt)),
-        tauriFs.readFile(repoPath, targetRelPath)
+        tauriFs
+          .readFile(repoPath, targetRelPath)
           .then((c) => tauriParsers.parse(c, fmt))
           .catch(() => empty),
-        tauriGit.showFileAtHead(repoPath, targetRelPath)
+        tauriGit
+          .showFileAtHead(repoPath, targetRelPath)
           .then((c) => tauriParsers.parse(c, fmt))
           .catch(() => empty),
       ]);
@@ -119,7 +246,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // 4. Build key list with states
       const { index, openPRs } = usePRStore.getState();
       const ownPRNumbers = new Set(
-        openPRs.filter((pr) => pr.author === currentUser).map((pr) => pr.number)
+        openPRs
+          .filter((pr) => pr.author === currentUser)
+          .map((pr) => pr.number),
       );
       const localeProposals = index[targetLocale] ?? {};
 
@@ -128,9 +257,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           const headTranslation = headKeys[key]?.text;
           const localTranslation = localKeys[key]?.text;
           const proposals = localeProposals[key] ?? [];
-          const ownProposal = proposals.find((p) => ownPRNumbers.has(p.prNumber));
+          const ownProposal = proposals.find((p) =>
+            ownPRNumbers.has(p.prNumber),
+          );
           const hasOtherProposal = proposals.some(
-            (p) => !ownPRNumbers.has(p.prNumber)
+            (p) => !ownPRNumbers.has(p.prNumber),
           );
 
           let state: KeyState;
@@ -157,7 +288,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             state,
             proposals,
           };
-        }
+        },
       );
 
       // Sort alphabetically so sidebar order and arrow-key navigation are consistent
@@ -180,7 +311,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         editBuffer: keys[0]?.editorTranslation ?? "",
         isDirty: false,
         isLoading: false,
+        secondaryTranslations: null,
       });
+
+      // Restore persisted secondary source locale (non-blocking)
+      const persisted = localStorage.getItem(SECONDARY_LOCALE_KEY);
+      if (persisted) {
+        get()
+          .setSecondaryLocale(persisted)
+          .catch((e: unknown) => {
+            console.debug("[lingoa] Failed to restore secondary locale:", e);
+          });
+      } else {
+        set({ secondaryLocale: null });
+      }
     } catch (e) {
       set({
         isLoading: false,
@@ -236,20 +380,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     // reverts to "other-pending" when third-party PR proposals still exist,
     // rather than always falling through to "untranslated".
     const ownPRNumbers = new Set(
-      usePRStore.getState().openPRs
-        .filter((p) => p.author === currentUser)
-        .map((p) => p.number)
+      usePRStore
+        .getState()
+        .openPRs.filter((p) => p.author === currentUser)
+        .map((p) => p.number),
     );
-    const deriveState = (k: TranslationKeyWithState, text: string): KeyState => {
-      if (text && text === k.headTranslation) return "translated";
-      if (text) return "own-pending";
-      if (k.proposals.some((p) => !ownPRNumbers.has(p.prNumber))) return "other-pending";
-      return "untranslated";
-    };
 
     const updater = (k: TranslationKeyWithState) =>
       k.key === selectedKey.key
-        ? { ...k, editorTranslation: editBuffer, state: deriveState(k, editBuffer) }
+        ? {
+            ...k,
+            editorTranslation: editBuffer,
+            state: deriveKeyState(k, editBuffer, ownPRNumbers),
+          }
         : k;
 
     const updatedKeys = keys.map(updater);
@@ -260,13 +403,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     // Include explicit empty strings (null means "never set" and is excluded).
     const translations: Record<string, string> = {};
     for (const k of updatedKeys) {
-      if (k.editorTranslation !== null) translations[k.key] = k.editorTranslation;
+      if (k.editorTranslation !== null)
+        translations[k.key] = k.editorTranslation;
     }
 
     const content = await tauriParsers.serialize(
       translations,
       sourceKeys,
-      fileFormat(targetRelPath)
+      fileFormat(targetRelPath),
     );
     await tauriFs.writeFile(repoPath, targetRelPath, content);
 
@@ -278,7 +422,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const repoInfo = useRepoStore.getState().repoInfo;
       const repoLabel = repoInfo
         ? `${repoInfo.owner}/${repoInfo.repo}`
-        : rp.split("/").pop() ?? rp;
+        : (rp.split("/").pop() ?? rp);
       localStorage.setItem(
         "lingoa:last-session",
         JSON.stringify({
@@ -287,9 +431,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           sourceLocale: sf.locale,
           targetLocale: tl,
           repoLabel,
-          translatedCount: updatedKeys.filter((k) => k.editorTranslation !== null).length,
+          translatedCount: updatedKeys.filter(
+            (k) => k.editorTranslation !== null,
+          ).length,
           totalCount: updatedKeys.length,
-        })
+        }),
       );
     }
   },
@@ -328,8 +474,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  submitPR: async () => {
-    const { sourceFile, targetLocale, targetRelPath, repoPath } = get();
+  submitPR: async (userNote) => {
+    const { sourceFile, targetLocale, targetRelPath, repoPath, keys } = get();
     if (!sourceFile || !targetLocale || !targetRelPath || !repoPath) {
       throw new Error("Editor not fully loaded");
     }
@@ -338,8 +484,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!repoInfo) throw new Error("No repo info available");
 
     // PR targets the upstream repo (or same repo if not forked).
-    const prOwner = isForkedRepo(repoInfo) ? repoInfo.upstreamOwner : repoInfo.owner;
-    const prRepo = isForkedRepo(repoInfo) ? repoInfo.upstreamRepo : repoInfo.repo;
+    const { owner: prOwner, repo: prRepo } = getTargetRepo(repoInfo);
     // For cross-fork PRs, GitHub needs "head": "forkOwner:branch".
     const headOwner = repoInfo.owner;
     const branchName = buildBranchName(targetLocale, sourceFile.relativePath);
@@ -349,15 +494,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       repoPath,
       branchName,
       targetRelPath,
-      `translate: ${targetLocale} - ${sourceFile.relativePath}`
+      `translate: ${targetLocale} - ${sourceFile.relativePath}`,
     );
 
     // Check whether a PR already exists for this branch (amendment case).
-    const existingUrl = await tauriGitHub.findPRForBranch(prOwner, prRepo, headOwner, branchName);
+    const existingUrl = await tauriGitHub.findPRForBranch(
+      prOwner,
+      prRepo,
+      headOwner,
+      branchName,
+    );
     if (existingUrl) {
       localStorage.removeItem("lingoa:last-session");
       return existingUrl;
     }
+
+    const { prTipEnabled } = useSettingsStore.getState();
+    const body = buildPRBody(
+      sourceFile,
+      targetLocale,
+      keys,
+      userNote,
+      prTipEnabled,
+    );
 
     const url = await createPR(
       prOwner,
@@ -365,7 +524,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       `[Translation] ${targetLocale} — ${sourceFile.relativePath}`,
       headOwner,
       branchName,
-      `Translation of \`${sourceFile.relativePath}\` to \`${targetLocale}\`.\n\n_Created with [Lingoa](https://github.com/gh-translate/gh-translate)_`
+      body,
     );
     localStorage.removeItem("lingoa:last-session");
     return url;

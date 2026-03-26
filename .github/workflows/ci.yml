@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-progress runs on the same branch/PR when a new commit is pushed.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Rust: format · clippy · tests ─────────────────────────────────────────
+  rust:
+    name: Rust (fmt · clippy · test)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      # All native libraries required to compile the workspace on Linux.
+      # libgit2-dev is needed because git2 uses the system library
+      # (no "bundled" feature), libdbus-1-dev for keyring, the rest for Tauri.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libdbus-1-dev \
+            libgit2-dev \
+            pkg-config
+
+      - name: cargo fmt --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --tests -- -D warnings
+
+      # Keychain tests are marked #[ignore] — they require an OS credential store.
+      # Run them locally with: cargo test --lib -- --include-ignored
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+  # ── Frontend: TypeScript · build ──────────────────────────────────────────
+  frontend:
+    name: Frontend (tsc · build)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # tsc --noEmit is fast and catches type errors without writing output.
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      # Full Vite bundle — verifies no import errors or bundler issues.
+      - name: Build
+        run: npm run build

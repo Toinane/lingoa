@@ -1,12 +1,7 @@
+import React from "react";
 import type { TranslationKeyWithState, KeyState } from "../../types";
 import { useT } from "../../i18n";
-
-const STATE_COLORS: Record<KeyState, string> = {
-  translated: "#3fb950",
-  "own-pending": "#d29922",
-  "other-pending": "#58a6ff",
-  untranslated: "#f85149",
-};
+import { STATE_COLORS } from "../../constants/keyState";
 
 interface Props {
   item: TranslationKeyWithState;
@@ -15,7 +10,7 @@ interface Props {
   onClick: () => void;
 }
 
-export default function KeyItem({ item, isSelected, isGrouped = false, onClick }: Props) {
+function KeyItem({ item, isSelected, isGrouped = false, onClick }: Props) {
   const t = useT();
 
   const STATE_TITLES: Record<KeyState, string> = {
@@ -29,7 +24,8 @@ export default function KeyItem({ item, isSelected, isGrouped = false, onClick }
 
   // Inside an accordion group, show only the leaf portion of the key (after first dot)
   const dotIdx = item.key.indexOf(".");
-  const leafKey = isGrouped && dotIdx !== -1 ? item.key.slice(dotIdx + 1) : item.key;
+  const leafKey =
+    isGrouped && dotIdx !== -1 ? item.key.slice(dotIdx + 1) : item.key;
 
   return (
     <button
@@ -68,3 +64,7 @@ export default function KeyItem({ item, isSelected, isGrouped = false, onClick }
     </button>
   );
 }
+
+// React.memo is safe here: useT() subscribes directly to settingsStore,
+// so language changes trigger re-renders regardless of memo.
+export default React.memo(KeyItem);

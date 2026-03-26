@@ -42,8 +42,9 @@ impl GitHubApi {
     fn new(http: &GitHubHttp, token: &str) -> Result<Self, String> {
         Ok(GitHubApi {
             client: http.0.clone(),
+            // Do not include the token in the error string — it would leak via the IPC channel.
             auth: HeaderValue::from_str(&format!("Bearer {token}"))
-                .map_err(|e| e.to_string())?,
+                .map_err(|_| "Invalid token format — token must contain only printable ASCII characters".to_string())?,
         })
     }
 
@@ -162,14 +163,28 @@ pub struct FetchPRsResult {
 #[serde(rename_all = "camelCase")]
 pub struct KeyRow {
     key: String,
+    /// Source language text (e.g. English).
     source: String,
+    /// Previous translation from the base branch. None when the target file
+    /// is brand-new (created by this PR) or when the key didn't exist before.
+    previous: Option<String>,
+    /// New translation introduced by this PR.
     translated: String,
+    /// 1-indexed line in the translated file on the RIGHT side of the diff.
+    /// 0 means the line could not be located (e.g. multi-line YAML value).
+    line: u32,
+    /// Raw content of that line including indentation (empty when line == 0).
+    raw_line: String,
+    /// File path — needed to target inline review comments.
+    path: String,
 }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PRReviewFile {
     filename: String,
+    /// True when the target file did not exist on the base branch before this PR.
+    is_new_file: bool,
     rows: Vec<KeyRow>,
 }
 
@@ -242,6 +257,15 @@ async fn get_paginated<T: serde::de::DeserializeOwned>(
             .send()
             .await
             .map_err(|e| e.to_string())?;
+        if resp.status() == 429 {
+            let retry = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| format!("; retry after {} seconds", s))
+                .unwrap_or_default();
+            return Err(format!("GitHub rate limit exceeded{}", retry));
+        }
         if !resp.status().is_success() {
             return Err(format!("GitHub API error: {}", resp.status()));
         }
@@ -254,6 +278,29 @@ async fn get_paginated<T: serde::de::DeserializeOwned>(
         results.extend(page);
     }
     Ok(results)
+}
+
+/// Find the 1-indexed line number and raw content of a translation key in a file.
+/// Matches the leaf key name + value (for JSON) to handle duplicate leaf keys
+/// in different namespaces. YAML matching uses only the leaf key due to value
+/// encoding complexity. Returns None when the line cannot be located.
+fn find_key_line(raw: &str, flat_key: &str, value: &str, is_yaml: bool) -> Option<(u32, String)> {
+    let leaf = flat_key.rsplit('.').next().unwrap_or(flat_key);
+    for (i, line) in raw.lines().enumerate() {
+        let trimmed = line.trim();
+        let matched = if is_yaml {
+            trimmed.starts_with(&format!("{}: ", leaf))
+                || trimmed == format!("{}:", leaf).as_str()
+        } else {
+            // Escape the value as it would appear inside a JSON string.
+            let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+            trimmed.starts_with(&format!("\"{}\": \"{}\"", leaf, escaped))
+        };
+        if matched {
+            return Some((i as u32 + 1, line.to_string()));
+        }
+    }
+    None
 }
 
 fn decode_base64(content: &str) -> Result<String, String> {
@@ -345,6 +392,8 @@ pub async fn github_list_translation_prs(
     owner: String,
     repo: String,
 ) -> Result<FetchPRsResult, String> {
+    crate::util::validate_github_owner(&owner)?;
+    crate::util::validate_github_repo(&repo)?;
     let api = GitHubApi::new(&http, &get_token()?)?;
 
     let url = format!(
@@ -494,6 +543,8 @@ pub async fn github_detect_fork(
     owner: String,
     repo: String,
 ) -> Result<Option<ForkInfo>, String> {
+    crate::util::validate_github_owner(&owner)?;
+    crate::util::validate_github_repo(&repo)?;
     let api = GitHubApi::new(&http, &get_token()?)?;
     let url = format!("https://api.github.com/repos/{}/{}", owner, repo);
     let resp = match api.get(&url).send().await {
@@ -533,6 +584,10 @@ pub async fn github_create_pr(
     branch: String,
     body: String,
 ) -> Result<String, String> {
+    crate::util::validate_github_owner(&owner)?;
+    crate::util::validate_github_repo(&repo)?;
+    crate::util::validate_github_owner(&head_owner)?;
+    crate::util::validate_branch_name(&branch)?;
     let api = GitHubApi::new(&http, &get_token()?)?;
 
     // Detect the default branch
@@ -587,6 +642,16 @@ pub async fn github_create_pr(
         .ok_or_else(|| "Missing PR URL in response".to_string())
 }
 
+/// Inline review comment for a specific line in a PR file.
+/// `line` must be > 0; entries with line == 0 are silently skipped.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewComment {
+    pub path: String,
+    pub line: u32,
+    pub body: String,
+}
+
 /// Review event type. Serde rejects any value outside this set at deserialization
 /// time, so no manual allowlist check is needed in the function body.
 #[derive(serde::Deserialize)]
@@ -607,31 +672,77 @@ impl ReviewEvent {
     }
 }
 
-/// Submit a PR review. `event` must be one of APPROVE / COMMENT / REQUEST_CHANGES —
-/// Tauri's deserializer rejects any other value before this function runs.
+/// Submit a PR review with optional inline comments (suggestions or plain comments).
+/// `event` must be one of APPROVE / COMMENT / REQUEST_CHANGES.
+/// `comments` entries with `line == 0` are silently skipped (line not in diff).
+/// `commit_id` is only included in the payload when there are valid inline comments.
 #[tauri::command]
 pub async fn github_submit_review(
     http: tauri::State<'_, GitHubHttp>,
     owner: String,
     repo: String,
     pr_number: u64,
+    commit_id: String,
     event: ReviewEvent,
     body: String,
+    comments: Vec<ReviewComment>,
 ) -> Result<(), String> {
+    crate::util::validate_github_owner(&owner)?;
+    crate::util::validate_github_repo(&repo)?;
+    if !commit_id.is_empty() {
+        crate::util::validate_git_sha(&commit_id)?;
+    }
+    for comment in &comments {
+        if comment.path.is_empty() || comment.path.len() > 4096 {
+            return Err("Review comment path must be 1-4096 characters".to_string());
+        }
+        if comment.path.contains("..") {
+            return Err("Review comment path must not contain '..'".to_string());
+        }
+        if comment.body.len() > 65536 {
+            return Err("Review comment body must not exceed 65536 characters".to_string());
+        }
+    }
     let api = GitHubApi::new(&http, &get_token()?)?;
     let url = format!(
         "https://api.github.com/repos/{}/{}/pulls/{}/reviews",
         owner, repo, pr_number
     );
+
+    let inline: Vec<serde_json::Value> = comments
+        .iter()
+        .filter(|c| c.line > 0)
+        .map(|c| {
+            serde_json::json!({
+                "path": c.path,
+                "line": c.line,
+                "side": "RIGHT",
+                "body": c.body,
+            })
+        })
+        .collect();
+
+    let mut payload = serde_json::json!({
+        "event": event.as_str(),
+        "body": body,
+    });
+    if !inline.is_empty() {
+        payload["commit_id"] = serde_json::Value::String(commit_id);
+        payload["comments"] = serde_json::Value::Array(inline);
+    }
+
     let resp = api
         .post(&url)
-        .json(&serde_json::json!({ "event": event.as_str(), "body": body }))
+        .json(&payload)
         .send()
         .await
         .map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
-        return Err(format!("Failed to submit review: {}", resp.status()));
+        let status = resp.status();
+        let err_body: serde_json::Value = resp.json().await.unwrap_or_default();
+        let msg = err_body["message"].as_str().unwrap_or("unknown error").to_string();
+        return Err(format!("Failed to submit review ({status}): {msg}"));
     }
     Ok(())
 }
@@ -646,6 +757,10 @@ pub async fn github_find_pr_for_branch(
     head_owner: String,
     branch: String,
 ) -> Result<Option<String>, String> {
+    crate::util::validate_github_owner(&owner)?;
+    crate::util::validate_github_repo(&repo)?;
+    crate::util::validate_github_owner(&head_owner)?;
+    crate::util::validate_branch_name(&branch)?;
     let api = GitHubApi::new(&http, &get_token()?)?;
     // GitHub's `head` filter always expects "owner:branch" format.
     let head_spec = format!("{}:{}", head_owner, branch);
@@ -664,6 +779,8 @@ pub async fn github_find_pr_for_branch(
 }
 
 /// Fetch all changed files in a PR and return parsed key comparison rows.
+/// `source_path` is the source-language file path (e.g. `src/i18n/locales/en.json`)
+/// used to populate the "Source" column. Pass an empty string if unknown.
 #[tauri::command]
 pub async fn github_fetch_pr_review_data(
     http: tauri::State<'_, GitHubHttp>,
@@ -672,7 +789,12 @@ pub async fn github_fetch_pr_review_data(
     pr_number: u64,
     head_sha: String,
     base_branch: String,
+    source_path: String,
 ) -> Result<Vec<PRReviewFile>, String> {
+    crate::util::validate_github_owner(&owner)?;
+    crate::util::validate_github_repo(&repo)?;
+    crate::util::validate_git_sha(&head_sha)?;
+    crate::util::validate_branch_name(&base_branch)?;
     let api = GitHubApi::new(&http, &get_token()?)?;
 
     let files_url = format!(
@@ -683,44 +805,64 @@ pub async fn github_fetch_pr_review_data(
         .await
         .map_err(|e| format!("Failed to fetch PR files: {e}"))?;
 
+    // Fetch the source-language file once (used as the "Source" column for all rows).
+    let source_is_yaml = crate::parsers::is_yaml_path(&source_path);
+    let source_keys = if !source_path.is_empty() {
+        fetch_file_at_ref(&api, &owner, &repo, &source_path, &base_branch)
+            .await
+            .and_then(|c| crate::parsers::parse_content(&c, source_is_yaml).ok())
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
+
     let mut result = Vec::new();
 
     for file in files.iter().filter(|f| is_translation_file(&f.filename)) {
         let is_yaml = crate::parsers::is_yaml_path(&file.filename);
 
-        // Fetch source (base branch) and translated (head SHA) concurrently.
-        let (source_content, translated_content) = tokio::join!(
+        // Fetch previous (base branch) and new (head SHA) concurrently.
+        let (prev_content, translated_content) = tokio::join!(
             fetch_file_at_ref(&api, &owner, &repo, &file.filename, &base_branch),
             fetch_file_at_ref(&api, &owner, &repo, &file.filename, &head_sha),
         );
 
-        let (source_content, translated_content) = match (source_content, translated_content) {
-            (Some(s), Some(t)) => (s, t),
-            _ => continue,
+        // If the PR's version can't be fetched, skip the file entirely.
+        let translated_content = match translated_content {
+            Some(c) => c,
+            None => continue,
         };
 
-        let source_keys =
-            crate::parsers::parse_content(&source_content, is_yaml).unwrap_or_default();
+        let is_new_file = prev_content.is_none();
+        let prev_keys = prev_content
+            .and_then(|c| crate::parsers::parse_content(&c, is_yaml).ok())
+            .unwrap_or_default();
         let translated_keys =
             crate::parsers::parse_content(&translated_content, is_yaml).unwrap_or_default();
 
         let rows: Vec<KeyRow> = translated_keys
             .into_iter()
             .map(|(key, val)| {
-                let source = source_keys
-                    .get(&key)
-                    .map(|v| v.text.clone())
-                    .unwrap_or_default();
+                let source = source_keys.get(&key).map(|v| v.text.clone()).unwrap_or_default();
+                let previous = prev_keys.get(&key).map(|v| v.text.clone());
+                let (line, raw_line) =
+                    find_key_line(&translated_content, &key, &val.text, is_yaml)
+                        .unwrap_or((0, String::new()));
                 KeyRow {
                     key,
                     source,
+                    previous,
                     translated: val.text,
+                    line,
+                    raw_line,
+                    path: file.filename.clone(),
                 }
             })
             .collect();
 
         result.push(PRReviewFile {
             filename: file.filename.clone(),
+            is_new_file,
             rows,
         });
     }

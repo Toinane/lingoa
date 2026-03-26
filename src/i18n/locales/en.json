@@ -1,8 +1,21 @@
 {
   "app": {
-    "name": "Lingoa",
     "tagline": "git push your language barrier away",
-    "description": "Lingoa is a desktop app that helps you translate your projects and contribute to open source in your native language. Connect your GitHub account, open a repository, and start translating."
+    "description": "Lingoa is a desktop app that helps you translate your projects and contribute to open source in your native language. Connect your GitHub account, open a repository, and start translating.",
+    "unsavedChangesPrompt": "You have unsaved changes. Leave anyway?"
+  },
+
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
+  },
+
+  "update": {
+    "available": "Update available",
+    "installing": "Installing\u2026",
+    "tooltip": "A new version of Lingoa is ready to install"
   },
 
   "nav": {
@@ -58,7 +71,8 @@
     "countingKeys": "counting\u2026",
     "upstreamPlaceholder": "owner/repo (upstream)",
     "set": "Set",
-    "forkDetected": "fork"
+    "forkDetected": "fork",
+    "dropToOpen": "Drop to open"
   },
 
   "editor": {
@@ -92,7 +106,11 @@
     "confirmPRConfirm": "Create PR",
     "confirmPRCancel": "Cancel",
     "spellcheckEnable": "Enable spellcheck",
-    "spellcheckDisable": "Disable spellcheck"
+    "spellcheckDisable": "Disable spellcheck",
+    "addReference": "+ add reference…",
+    "removeReference": "Remove reference",
+    "confirmPRNote": "Note for reviewers (optional)",
+    "confirmPRNotePlaceholder": "Describe what you translated, any terminology decisions, open questions\u2026"
   },
 
   "keyList": {
@@ -129,6 +147,7 @@
     "noKeys": "No translatable keys found in this PR",
     "colKey": "Key",
     "colSource": "Source",
+    "colPrevious": "Previous",
     "colTranslation": "Translation",
     "approve": "Approve",
     "comment": "Comment",
@@ -141,7 +160,23 @@
     "ownPRNotice": "You cannot review your own PR.",
     "reviewSubmitted": "Review submitted!",
     "draft": "Draft",
-    "you": "(you)"
+    "you": "(you)",
+    "back": "Back",
+    "previousKey": "Previous key",
+    "nextKey": "Next key",
+    "newKey": "new key",
+    "annotation": "Annotation",
+    "annotationTypeSuggestion": "Suggestion",
+    "annotationTypeComment": "Comment",
+    "annotationCommentPlaceholder": "Leave a comment on this key\u2026",
+    "annotationAdd": "Add",
+    "annotationUpdate": "Update",
+    "annotationRemove": "Remove",
+    "annotationCancel": "Cancel",
+    "annotationLineNotInDiffHint": "Line not in diff \u2014 suggestions unavailable",
+    "annotationIncluded": "{{n}} annotation will be included",
+    "annotationsIncluded": "{{n}} annotations will be included",
+    "submitAnother": "Submit another"
   },
 
   "settings": {
@@ -162,6 +197,8 @@
     "language": "Language",
     "spellcheck": "Spellcheck on by default",
     "spellcheckDesc": "Show browser spellcheck underlines in the translation textarea",
+    "prTip": "Include review tip in PR",
+    "prTipDesc": "Add a Lingoa tip callout to the PR body so reviewers can open the PR in the app",
     "autoSave": "Auto-save when switching keys",
     "autoSaveDesc": "Automatically save the current translation when clicking another key"
   }

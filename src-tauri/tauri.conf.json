@@ -25,6 +25,14 @@
       "csp": "default-src 'self'; script-src 'self'; connect-src ipc: https://ipc.localhost; img-src 'self' https://avatars.githubusercontent.com data: blob:; style-src 'self' 'unsafe-inline'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ3NzY0QTc2REUyQTI0RTUKUldUbEpDcmVka3AyUjNUZkFNNWNnUG1YdUc3bHVGL1lBbG9tRTBFTVczcUdpRGN0QlJNbFJqbGYK",
+      "endpoints": [
+        "https://github.com/Toinane/lingoa/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

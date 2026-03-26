@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { RepoInfo, TranslationFile, RecentRepo } from "../types";
-import { tauriDiscovery, tauriParsers, tauriGit, type DiscoveredFile } from "../lib/tauri";
+import {
+  tauriDiscovery,
+  tauriParsers,
+  tauriGit,
+  type DiscoveredFile,
+} from "../lib/tauri";
 import { parseGithubUrl } from "../lib/git";
 import { detectFork } from "../lib/github";
 
@@ -29,7 +34,10 @@ interface RepoState {
 }
 
 /** Count keys for a single file via a single sandboxed Rust IPC call. */
-async function countKeys(f: TranslationFile, repoPath: string): Promise<TranslationFile> {
+async function countKeys(
+  f: TranslationFile,
+  repoPath: string,
+): Promise<TranslationFile> {
   try {
     const keyCount = await tauriParsers.countKeys(repoPath, f.relativePath);
     return { ...f, keyCount };
@@ -43,11 +51,11 @@ const BATCH_SIZE = 5;
 async function countKeysBatched(
   files: TranslationFile[],
   repoPath: string,
-  onBatch: (counted: TranslationFile[]) => void
+  onBatch: (counted: TranslationFile[]) => void,
 ): Promise<void> {
   for (let i = 0; i < files.length; i += BATCH_SIZE) {
     const counted = await Promise.all(
-      files.slice(i, i + BATCH_SIZE).map((f) => countKeys(f, repoPath))
+      files.slice(i, i + BATCH_SIZE).map((f) => countKeys(f, repoPath)),
     );
     onBatch(counted);
     await new Promise<void>((r) => setTimeout(r, 0));
@@ -120,7 +128,9 @@ export const useRepoStore = create<RepoState>((set, get) => ({
                   forkDetected = true;
                 }
               }
-            } catch { /* no upstream remote */ }
+            } catch {
+              /* no upstream remote */
+            }
 
             // 1b. Fallback: query GitHub API to detect fork (async, non-blocking)
             if (!forkDetected) {
@@ -138,26 +148,36 @@ export const useRepoStore = create<RepoState>((set, get) => ({
                               upstreamRepo: forkInfo.upstreamRepo,
                             },
                           }
-                        : { isDetectingFork: false }
+                        : { isDetectingFork: false },
                     );
                   } else {
                     set({ isDetectingFork: false });
                   }
                 })
-                .catch(() => { set({ isDetectingFork: false }); });
+                .catch(() => {
+                  set({ isDetectingFork: false });
+                });
             }
           }
         }
-      } catch { /* no git remote */ }
+      } catch {
+        /* no git remote */
+      }
 
       // 2. Discover i18n files (Rust: walkdir + locale pattern matching)
-      const files: TranslationFile[] = (await tauriDiscovery.discover(repoPath)).map(
-        (f: DiscoveredFile) => ({ ...f, keyCount: 0 })
-      );
+      const files: TranslationFile[] = (
+        await tauriDiscovery.discover(repoPath)
+      ).map((f: DiscoveredFile) => ({ ...f, keyCount: 0 }));
       const sourceFile = detectSourceFile(files);
 
       // Unblock the UI — isDetectingFork stays true until fork API call resolves
-      set({ repoInfo, files, sourceFile, isScanning: false, isDetectingFork: pendingForkDetection !== null });
+      set({
+        repoInfo,
+        files,
+        sourceFile,
+        isScanning: false,
+        isDetectingFork: pendingForkDetection !== null,
+      });
 
       // Save to recent repos
       if (repoInfo) {
@@ -168,7 +188,7 @@ export const useRepoStore = create<RepoState>((set, get) => ({
           lastOpenedAt: new Date().toISOString(),
         };
         const existing: RecentRepo[] = JSON.parse(
-          localStorage.getItem(RECENT_REPOS_KEY) ?? "[]"
+          localStorage.getItem(RECENT_REPOS_KEY) ?? "[]",
         );
         const updated = [
           recent,
@@ -182,7 +202,7 @@ export const useRepoStore = create<RepoState>((set, get) => ({
       await countKeysBatched(files, repoPath, (batch) => {
         set((s) => {
           const updated = s.files.map(
-            (f) => batch.find((b) => b.absolutePath === f.absolutePath) ?? f
+            (f) => batch.find((b) => b.absolutePath === f.absolutePath) ?? f,
           );
           return { files: updated, sourceFile: detectSourceFile(updated) };
         });
@@ -233,14 +253,16 @@ export const useRepoStore = create<RepoState>((set, get) => ({
     }
 
     if (skipped.length > 0) {
-      set({ error: `Files outside the repository were skipped: ${skipped.join(", ")}` });
+      set({
+        error: `Files outside the repository were skipped: ${skipped.join(", ")}`,
+      });
     }
 
     const existing = get().files;
     const merged = [
       ...existing,
       ...newFiles.filter(
-        (nf) => !existing.some((e) => e.absolutePath === nf.absolutePath)
+        (nf) => !existing.some((e) => e.absolutePath === nf.absolutePath),
       ),
     ];
     set({ files: merged, sourceFile: detectSourceFile(merged) });
@@ -248,7 +270,7 @@ export const useRepoStore = create<RepoState>((set, get) => ({
     await countKeysBatched(newFiles, repoPath!, (batch) => {
       set((s) => {
         const updated = s.files.map(
-          (f) => batch.find((b) => b.absolutePath === f.absolutePath) ?? f
+          (f) => batch.find((b) => b.absolutePath === f.absolutePath) ?? f,
         );
         return { files: updated, sourceFile: detectSourceFile(updated) };
       });
@@ -273,7 +295,7 @@ export const useRepoStore = create<RepoState>((set, get) => ({
           typeof (r as RecentRepo).localPath === "string" &&
           typeof (r as RecentRepo).owner === "string" &&
           typeof (r as RecentRepo).repo === "string" &&
-          typeof (r as RecentRepo).lastOpenedAt === "string"
+          typeof (r as RecentRepo).lastOpenedAt === "string",
       );
       set({ recentRepos: valid });
     } catch {
@@ -289,7 +311,9 @@ export const useRepoStore = create<RepoState>((set, get) => ({
   },
 
   registerTargetFile: (file) => {
-    const already = get().files.some((f) => f.relativePath === file.relativePath);
+    const already = get().files.some(
+      (f) => f.relativePath === file.relativePath,
+    );
     if (!already) set({ files: [...get().files, file] });
   },
 }));

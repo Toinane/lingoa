@@ -1,0 +1,14 @@
+{
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installMode": "portable"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}

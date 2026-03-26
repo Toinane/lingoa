@@ -19,21 +19,25 @@ export default function ProposalsSection({ proposals }: Props) {
   const renderProposal = (p: PRProposal, isOwn: boolean) => (
     <div
       key={`${p.prNumber}-${p.author}`}
-      className="flex items-start gap-3 py-2.5 border-b border-app-border last:border-0"
+      className="flex items-start gap-3 p-2.5 border-b border-app-border last:border-0"
     >
       <div
         className="w-6 h-6 rounded-full shrink-0 bg-app-surface-2 flex items-center justify-center text-xs text-app-muted overflow-hidden"
         title={p.author}
       >
         {p.authorAvatarUrl ? (
-          <img src={p.authorAvatarUrl} alt={p.author} className="w-full h-full object-cover" />
+          <img
+            src={p.authorAvatarUrl}
+            alt={p.author}
+            className="w-full h-full object-cover"
+          />
         ) : (
           p.author[0]?.toUpperCase()
         )}
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
+        <div className="flex items-center gap-2 mb-2">
           <span className="text-app-text text-xs font-medium">@{p.author}</span>
           {isOwn && (
             <span className="text-xs text-key-yellow bg-key-yellow/10 px-1.5 py-0.5 rounded">
@@ -56,7 +60,9 @@ export default function ProposalsSection({ proposals }: Props) {
 
   return (
     <div className="px-6 pt-2 pb-4">
-      <p className="text-xs uppercase tracking-wider text-app-muted mb-3">{t.editor.proposals}</p>
+      <p className="text-xs uppercase tracking-wider text-app-muted mb-3">
+        {t.editor.proposals}
+      </p>
       <div className="bg-app-surface border border-app-border rounded-md overflow-hidden">
         {own.map((p) => renderProposal(p, true))}
         {others.map((p) => renderProposal(p, false))}

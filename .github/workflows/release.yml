@@ -1,0 +1,116 @@
+name: Release
+
+# Triggers on version tags: v1.0.0, v1.2.3-beta.1, etc.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  publish:
+    permissions:
+      contents: write # required to create the GitHub Release and upload assets
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS universal binary (Intel + Apple Silicon in one file).
+          # Unsigned — Gatekeeper will prompt on first launch; users bypass with
+          # right-click → Open. Uncomment the APPLE_* env vars below to enable
+          # notarization once you have an Apple Developer account.
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+
+          - platform: ubuntu-22.04
+            args: ""
+            rust-targets: ""
+
+          # Windows x64
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+
+          # Windows ARM64 — native runner, no cross-compilation issues
+          - platform: windows-11-arm
+            args: "--target aarch64-pc-windows-msvc"
+            rust-targets: "aarch64-pc-windows-msvc"
+
+          # Windows x64 portable — single exe, no install required, no auto-updater
+          - platform: windows-latest
+            args: "--bundles nsis --config src-tauri/tauri.portable.conf.json"
+            rust-targets: ""
+
+          # Windows ARM64 portable
+          - platform: windows-11-arm
+            args: "--target aarch64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.portable.conf.json"
+            rust-targets: "aarch64-pc-windows-msvc"
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      # Cache Cargo registry + compiled deps between runs
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      # WebKit + AppIndicator + rsvg required by Tauri on Linux
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libdbus-1-dev \
+            libgit2-dev \
+            pkg-config
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Lingoa ${{ github.ref_name }}"
+          releaseBody: |
+            Download the installer for your platform below.
+
+            | Platform | File | Notes |
+            |---|---|---|
+            | Windows x64 | `Lingoa_x.x.x_x64-setup.exe` | Installer, auto-updates |
+            | Windows x64 | `Lingoa_x.x.x_x64-portable.exe` | No install needed |
+            | Windows ARM64 | `Lingoa_x.x.x_arm64-setup.exe` | Installer, auto-updates |
+            | Windows ARM64 | `Lingoa_x.x.x_arm64-portable.exe` | No install needed |
+            | macOS (Universal) | `Lingoa_x.x.x_universal.dmg` | Auto-updates |
+            | Linux | `lingoa_x.x.x_amd64.AppImage` | Auto-updates |
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

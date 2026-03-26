@@ -5,9 +5,33 @@ import type { TranslationPR, PRIndex, TranslationValue } from "../types";
 
 export type { TranslationValue };
 
+export interface KeyRow {
+  key: string;
+  /** Source language text (e.g. English). */
+  source: string;
+  /** Previous translation from base branch. null when file is new or key didn't exist. */
+  previous: string | null;
+  /** New translation introduced by this PR. */
+  translated: string;
+  /** 1-indexed line in the translated file; 0 = not located. */
+  line: number;
+  /** Raw content of that line (for pre-populating suggestions). Empty when line=0. */
+  rawLine: string;
+  /** File path — needed to post inline review comments. */
+  path: string;
+}
+
+export interface ReviewComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
 export interface PRReviewFile {
   filename: string;
-  rows: { key: string; source: string; translated: string }[];
+  /** True when the target file did not exist before this PR. */
+  isNewFile: boolean;
+  rows: KeyRow[];
 }
 
 // ─── Shell ───────────────────────────────────────────────────────────────────
@@ -76,7 +100,7 @@ export const tauriParsers = {
   serialize: (
     translations: Record<string, string>,
     source: Record<string, TranslationValue>,
-    format: string
+    format: string,
   ) =>
     invoke<string>("serialize_translation_file", {
       translations,
@@ -114,19 +138,18 @@ export const tauriGitHub = {
   validateToken: (token: string) =>
     invoke<string>("github_validate_token", { token }),
   /** Return the current user using the token stored in the OS keychain. */
-  getUser: () =>
-    invoke<string>("github_get_user"),
+  getUser: () => invoke<string>("github_get_user"),
 
   detectFork: (owner: string, repo: string) =>
     invoke<{ upstreamOwner: string; upstreamRepo: string } | null>(
       "github_detect_fork",
-      { owner, repo }
+      { owner, repo },
     ),
 
   listTranslationPRs: (owner: string, repo: string) =>
     invoke<{ prs: TranslationPR[]; index: PRIndex }>(
       "github_list_translation_prs",
-      { owner, repo }
+      { owner, repo },
     ),
 
   createPR: (
@@ -135,7 +158,7 @@ export const tauriGitHub = {
     title: string,
     headOwner: string,
     branch: string,
-    body: string
+    body: string,
   ) =>
     invoke<string>("github_create_pr", {
       owner,
@@ -151,7 +174,7 @@ export const tauriGitHub = {
     owner: string,
     repo: string,
     headOwner: string,
-    branch: string
+    branch: string,
   ) =>
     invoke<string | null>("github_find_pr_for_branch", {
       owner,
@@ -164,15 +187,19 @@ export const tauriGitHub = {
     owner: string,
     repo: string,
     prNumber: number,
+    commitId: string,
     event: string,
-    body: string
+    body: string,
+    comments: ReviewComment[],
   ) =>
     invoke<void>("github_submit_review", {
       owner,
       repo,
       prNumber,
+      commitId,
       event,
       body,
+      comments,
     }),
 
   fetchPRReviewData: (
@@ -180,7 +207,8 @@ export const tauriGitHub = {
     repo: string,
     prNumber: number,
     headSha: string,
-    baseBranch: string
+    baseBranch: string,
+    sourcePath: string,
   ) =>
     invoke<PRReviewFile[]>("github_fetch_pr_review_data", {
       owner,
@@ -188,5 +216,6 @@ export const tauriGitHub = {
       prNumber,
       headSha,
       baseBranch,
+      sourcePath,
     }),
 };

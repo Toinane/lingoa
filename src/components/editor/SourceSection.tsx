@@ -1,37 +1,87 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useT } from "../../i18n";
+import { IconCopy, IconCheck, IconChevron } from "../Icons";
 
 interface Props {
   source: string;
   context?: string;
+  keyName?: string;
+  secondaryLocale?: string | null;
+  secondarySource?: string | null;
+  availableLocales?: string[];
+  onSetSecondaryLocale?: (locale: string | null) => void;
 }
 
-function IconCopy() {
+function LocalePicker({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: string | null;
+  options: string[];
+  placeholder: string;
+  onChange: (locale: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
   return (
-    // Radix-style filled copy icon — two overlapping documents, no fill/bg hack needed
-    <svg width="14" height="14" viewBox="0 0 15 15" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M1 9.5C1 10.33 1.67 11 2.5 11H4v-1H2.5A.5.5 0 0 1 2 9.5v-7A.5.5 0 0 1 2.5 2h7a.5.5 0 0 1 .5.5V4h-4.5C4.67 4 4 4.67 4 5.5v7C4 13.33 4.67 14 5.5 14h7c.83 0 1.5-.67 1.5-1.5v-7C14 4.67 13.33 4 12.5 4H11V2.5C11 1.67 10.33 1 9.5 1h-7C1.67 1 1 1.67 1 2.5v7ZM5 5.5A.5.5 0 0 1 5.5 5h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-7Z"
-      />
-    </svg>
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1 text-xs font-mono transition-colors ${
+          value
+            ? "text-app-muted hover:text-app-text uppercase tracking-wider"
+            : "text-app-muted/50 hover:text-app-muted"
+        }`}
+      >
+        {value ?? placeholder}
+        <IconChevron direction="down" className="w-2.5 h-2.5" />
+      </button>
+      {open && options.length > 0 && (
+        <div className="absolute left-0 top-full mt-1 z-50 bg-app-surface border border-app-border rounded-md shadow-md py-1 min-w-20">
+          {options.map((l) => (
+            <button
+              key={l}
+              onClick={() => {
+                onChange(l);
+                setOpen(false);
+              }}
+              className={`w-full text-left px-3 py-1.5 text-xs font-mono transition-colors ${
+                l === value
+                  ? "text-app-accent"
+                  : "text-app-text hover:bg-app-surface-2"
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
-function IconCheck() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 15 15" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M11.467 3.727a.75.75 0 0 1 .181 1.045l-4.25 6.5a.75.75 0 0 1-1.22.077L3.427 8.1a.75.75 0 1 1 1.146-.97l2.092 2.474 3.756-5.742a.75.75 0 0 1 1.046-.135Z"
-      />
-    </svg>
-  );
-}
-
-export default function SourceSection({ source, context }: Props) {
+export default function SourceSection({
+  source,
+  context,
+  keyName,
+  secondaryLocale,
+  secondarySource,
+  availableLocales,
+  onSetSecondaryLocale,
+}: Props) {
   const t = useT();
   const [copied, setCopied] = useState(false);
 
@@ -43,10 +93,23 @@ export default function SourceSection({ source, context }: Props) {
 
   return (
     <div className="border-b border-app-border">
-      <div className="px-6 pt-4 pb-2 flex items-center justify-between">
-        <p className="text-xs uppercase tracking-wider text-app-muted">
-          {t.editor.sourceString}
-        </p>
+      <div className="px-6 pt-4 pb-2 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-xs uppercase tracking-wider text-app-muted shrink-0">
+            {t.editor.sourceString}
+          </p>
+          {keyName && (
+            <>
+              <span className="text-app-muted/40 shrink-0">·</span>
+              <span
+                className="text-xs font-mono text-app-muted/60 truncate"
+                title={keyName}
+              >
+                {keyName}
+              </span>
+            </>
+          )}
+        </div>
         <button
           onClick={handleCopy}
           title={copied ? t.editor.copied : t.editor.copySource}
@@ -56,9 +119,14 @@ export default function SourceSection({ source, context }: Props) {
               : "text-app-muted hover:text-app-text hover:bg-app-surface-2"
           }`}
         >
-          {copied ? <IconCheck /> : <IconCopy />}
+          {copied ? (
+            <IconCheck className="w-3.5 h-3.5" />
+          ) : (
+            <IconCopy className="w-3.5 h-3.5" />
+          )}
         </button>
       </div>
+
       <div className="px-6 pb-4">
         <div className="max-h-40 overflow-y-auto">
           <p className="text-app-text text-base leading-relaxed whitespace-pre-wrap">
@@ -74,6 +142,37 @@ export default function SourceSection({ source, context }: Props) {
             </div>
           )}
         </div>
+
+        {/* Secondary reference language */}
+        {onSetSecondaryLocale && (availableLocales?.length ?? 0) > 0 && (
+          <div className="mt-3 pt-3 border-t border-app-border/50">
+            <div className="flex items-center gap-2 mb-1.5">
+              <LocalePicker
+                value={secondaryLocale ?? null}
+                options={availableLocales ?? []}
+                placeholder={t.editor.addReference}
+                onChange={onSetSecondaryLocale}
+              />
+              {secondaryLocale && (
+                <button
+                  onClick={() => onSetSecondaryLocale(null)}
+                  className="text-app-muted/40 hover:text-app-muted transition-colors leading-none"
+                  title={t.editor.removeReference}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {secondaryLocale &&
+              (secondarySource ? (
+                <p className="text-app-muted text-sm leading-relaxed whitespace-pre-wrap">
+                  {secondarySource}
+                </p>
+              ) : (
+                <p className="text-app-muted/30 text-xs italic">—</p>
+              ))}
+          </div>
+        )}
       </div>
     </div>
   );

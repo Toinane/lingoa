@@ -1,7 +1,11 @@
 // ─── Key states ──────────────────────────────────────────────────────────────
 
 /** Green = in HEAD, Yellow = own PR pending, Blue = other PR pending, Red = untranslated */
-export type KeyState = "translated" | "own-pending" | "other-pending" | "untranslated";
+export type KeyState =
+  | "translated"
+  | "own-pending"
+  | "other-pending"
+  | "untranslated";
 
 // ─── Translation values ───────────────────────────────────────────────────────
 
@@ -76,6 +80,13 @@ export interface ForkedRepoInfo extends RepoInfo {
 
 export function isForkedRepo(r: RepoInfo): r is ForkedRepoInfo {
   return r.isForked === true && !!r.upstreamOwner && !!r.upstreamRepo;
+}
+
+/** Returns the owner/repo to target for PRs — upstream for forks, origin otherwise. */
+export function getTargetRepo(r: RepoInfo): { owner: string; repo: string } {
+  return isForkedRepo(r)
+    ? { owner: r.upstreamOwner, repo: r.upstreamRepo }
+    : { owner: r.owner, repo: r.repo };
 }
 
 // ─── PRs ──────────────────────────────────────────────────────────────────────

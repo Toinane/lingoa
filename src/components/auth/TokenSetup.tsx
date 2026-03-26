@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuthStore } from "../../stores/authStore";
 import { openExternal } from "../../lib/tauri";
 import { useT } from "../../i18n";
+import { IconEye, IconEyeSlash } from "../Icons";
 
 export default function TokenSetup() {
   const [token, setToken] = useState("");
@@ -19,7 +20,7 @@ export default function TokenSetup() {
       <div className="w-full max-w-md px-8">
         {/* Logo */}
         <div className="text-center mb-10">
-          <div className="text-3xl font-bold text-app-text mb-2">{t.app.name}</div>
+          <div className="text-3xl font-bold text-app-text mb-2">Lingoa</div>
           <p className="text-app-muted text-sm">{t.app.tagline}</p>
         </div>
 
@@ -49,16 +50,9 @@ export default function TokenSetup() {
                   tabIndex={-1}
                 >
                   {showToken ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
-                      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
-                      <line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
+                    <IconEyeSlash className="w-4 h-4" />
                   ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
+                    <IconEye className="w-4 h-4" />
                   )}
                 </button>
               </div>
@@ -82,15 +76,23 @@ export default function TokenSetup() {
           <div className="mt-4 pt-4 border-t border-app-border space-y-2">
             <p className="text-app-muted text-xs">
               {t.auth.requiredScopes}{" "}
-              <code className="bg-app-surface-2 px-1 py-0.5 rounded text-app-text">repo</code>{" "}
+              <code className="bg-app-surface-2 px-1 py-0.5 rounded text-app-text">
+                repo
+              </code>{" "}
               {t.auth.scopePrivate},{" "}
-              <code className="bg-app-surface-2 px-1 py-0.5 rounded text-app-text">public_repo</code>{" "}
+              <code className="bg-app-surface-2 px-1 py-0.5 rounded text-app-text">
+                public_repo
+              </code>{" "}
               {t.auth.scopePublic}.
             </p>
             <p className="text-app-muted text-xs">
               {t.auth.createTokenHint}{" "}
               <button
-                onClick={() => openExternal("https://github.com/settings/tokens/new?scopes=repo&description=Lingoa")}
+                onClick={() =>
+                  openExternal(
+                    "https://github.com/settings/tokens/new?scopes=repo&description=Lingoa",
+                  )
+                }
                 className="text-app-accent hover:underline"
               >
                 {t.auth.createTokenLink}
@@ -104,7 +106,9 @@ export default function TokenSetup() {
           className="w-full mt-3 bg-app-surface border border-app-border hover:border-app-accent/50 hover:text-app-text text-app-muted rounded-lg py-3 px-4 text-sm font-medium transition-colors"
         >
           {t.auth.skip}
-          <span className="block text-app-muted/60 text-xs font-normal mt-0.5">{t.auth.skipHint}</span>
+          <span className="block text-app-muted/60 text-xs font-normal mt-0.5">
+            {t.auth.skipHint}
+          </span>
         </button>
       </div>
     </div>

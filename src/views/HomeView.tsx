@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppStore } from "../stores/appStore";
 import { useRepoStore } from "../stores/repoStore";
@@ -8,8 +8,40 @@ import { usePRStore } from "../stores/prStore";
 import { getTargetLocales } from "../lib/discovery";
 import { openExternal } from "../lib/tauri";
 import { useT, interp } from "../i18n";
-import { isForkedRepo } from "../types";
-import type { TranslationFile } from "../types";
+import { isForkedRepo, getTargetRepo } from "../types";
+import {
+  IconFolder,
+  IconChevron,
+  IconX,
+  IconPencil,
+} from "../components/Icons";
+import type { RepoInfo, TranslationFile } from "../types";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const COMMON_LOCALES: Record<string, string> = {
+  fr: "French",
+  de: "German",
+  es: "Spanish",
+  it: "Italian",
+  pt: "Portuguese",
+  ja: "Japanese",
+  ko: "Korean",
+  zh: "Chinese",
+  ru: "Russian",
+  ar: "Arabic",
+  nl: "Dutch",
+  pl: "Polish",
+  sv: "Swedish",
+  "pt-BR": "Portuguese (BR)",
+  "zh-CN": "Chinese (Simplified)",
+};
+
+function localeName(code: string) {
+  return COMMON_LOCALES[code] ?? code;
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface LastSession {
   repoPath: string;
@@ -21,23 +53,32 @@ interface LastSession {
   totalCount: number;
 }
 
-const COMMON_LOCALES: Record<string, string> = {
-  fr: "French", de: "German", es: "Spanish", it: "Italian",
-  pt: "Portuguese", ja: "Japanese", ko: "Korean", zh: "Chinese",
-  ru: "Russian", ar: "Arabic", nl: "Dutch", pl: "Polish",
-  sv: "Swedish", "pt-BR": "Portuguese (BR)", "zh-CN": "Chinese (Simplified)",
-};
-
-function localeName(code: string) {
-  return COMMON_LOCALES[code] ?? code;
+function readLastSession(): LastSession | null {
+  try {
+    const raw = localStorage.getItem("lingoa:last-session");
+    return raw ? (JSON.parse(raw) as LastSession) : null;
+  } catch {
+    return null;
+  }
 }
+
+// ─── HomeView ─────────────────────────────────────────────────────────────────
 
 export default function HomeView() {
   const setView = useAppStore((s) => s.setView);
   const {
-    repoPath, repoInfo, files, sourceFile,
-    setSourceFile, openFolder, addManualFiles,
-    isScanning, isDetectingFork, recentRepos, openPath, removeRecentRepo,
+    repoPath,
+    repoInfo,
+    files,
+    sourceFile,
+    setSourceFile,
+    openFolder,
+    addManualFiles,
+    isScanning,
+    isDetectingFork,
+    recentRepos,
+    openPath,
+    removeRecentRepo,
   } = useRepoStore();
   const { loadEditor } = useEditorStore();
   const { fetchPRs } = usePRStore();
@@ -50,6 +91,9 @@ export default function HomeView() {
   const [isResuming, setIsResuming] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Read once on mount — never changes within the session
+  const lastSession = useMemo(readLastSession, []);
 
   // Drag-and-drop from OS — only active on the no-repo screen
   useEffect(() => {
@@ -64,28 +108,31 @@ export default function HomeView() {
           setIsDragging(false);
         } else if (type === "drop") {
           setIsDragging(false);
-          const paths = (event.payload as { type: "drop"; paths: string[] }).paths;
+          const paths = (event.payload as { type: "drop"; paths: string[] })
+            .paths;
           if (!paths.length) return;
           const first = paths[0].replace(/\\/g, "/");
-          // If it looks like a file (has an extension), open its parent directory
           const target = /\.[^/]+$/.test(first)
             ? first.split("/").slice(0, -1).join("/")
             : first;
           openPath(target);
         }
       })
-      .then((fn) => { unlisten = fn; });
+      .then((fn) => {
+        unlisten = fn;
+      });
     return () => unlisten?.();
   }, [repoPath, openPath]);
 
-  const [lastSession] = useState<LastSession | null>(() => {
+  /** Fetch PRs for the given repo, swallowing errors (PRs are non-critical). */
+  async function tryFetchPRs(info: RepoInfo) {
+    const { owner, repo } = getTargetRepo(info);
     try {
-      const raw = localStorage.getItem("lingoa:last-session");
-      return raw ? (JSON.parse(raw) as LastSession) : null;
+      await fetchPRs(owner, repo);
     } catch {
-      return null;
+      /* continue without proposals */
     }
-  });
+  }
 
   const handleResume = async () => {
     if (!lastSession) return;
@@ -95,19 +142,16 @@ export default function HomeView() {
       await openPath(lastSession.repoPath);
       const storeState = useRepoStore.getState();
       const srcFile = storeState.files.find(
-        (f) => f.relativePath === lastSession.sourceFilePath
+        (f) => f.relativePath === lastSession.sourceFilePath,
       );
       if (!srcFile) throw new Error("Source file not found in repository");
-      if (storeState.repoInfo) {
-        const ri = storeState.repoInfo;
-        try {
-          await fetchPRs(
-            isForkedRepo(ri) ? ri.upstreamOwner : ri.owner,
-            isForkedRepo(ri) ? ri.upstreamRepo : ri.repo
-          );
-        } catch { /* continue without proposals */ }
-      }
-      await loadEditor(srcFile, lastSession.targetLocale, currentUser, lastSession.repoPath);
+      if (storeState.repoInfo) await tryFetchPRs(storeState.repoInfo);
+      await loadEditor(
+        srcFile,
+        lastSession.targetLocale,
+        currentUser,
+        lastSession.repoPath,
+      );
       setView("editor");
     } catch (e) {
       setIsResuming(false);
@@ -115,9 +159,8 @@ export default function HomeView() {
     }
   };
 
-  const targetLocales = files.length > 0
-    ? getTargetLocales(files, sourceFile?.locale ?? "en")
-    : [];
+  const targetLocales =
+    files.length > 0 ? getTargetLocales(files, sourceFile?.locale ?? "en") : [];
 
   const finalTarget = targetLocale === "__custom" ? customLocale : targetLocale;
 
@@ -126,14 +169,7 @@ export default function HomeView() {
     setIsStarting(true);
     setError(null);
     try {
-      if (repoInfo) {
-        try {
-          await fetchPRs(
-            isForkedRepo(repoInfo) ? repoInfo.upstreamOwner : repoInfo.owner,
-            isForkedRepo(repoInfo) ? repoInfo.upstreamRepo : repoInfo.repo
-          );
-        } catch { /* continue without proposals */ }
-      }
+      if (repoInfo) await tryFetchPRs(repoInfo);
       await loadEditor(sourceFile, finalTarget, currentUser, repoPath);
       setView("editor");
     } catch (e) {
@@ -143,17 +179,32 @@ export default function HomeView() {
     }
   };
 
+  // All hooks must be declared before any conditional return.
+  const allLocales = useMemo(
+    () => [...new Set(files.map((f) => f.locale))],
+    [files],
+  );
+
+  const groupedByLocale = useMemo(() => {
+    const result: Record<string, TranslationFile[]> = {};
+    for (const f of files) {
+      (result[f.locale] ??= []).push(f);
+    }
+    return result;
+  }, [files]);
+
   // ── No folder loaded ──────────────────────────────────────────────────────
   if (!repoPath) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="w-full max-w-lg px-8">
-
           {/* Resume last session */}
           {lastSession && (
             <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-app-surface border border-app-accent/30 rounded-lg">
               <div className="flex-1 min-w-0">
-                <p className="text-app-text text-sm font-medium truncate">{lastSession.repoLabel}</p>
+                <p className="text-app-text text-sm font-medium truncate">
+                  {lastSession.repoLabel}
+                </p>
                 <p className="text-app-muted text-xs mt-0.5">
                   {interp(t.home.resumeLocale, {
                     source: lastSession.sourceLocale,
@@ -190,21 +241,24 @@ export default function HomeView() {
                 : "border-app-border hover:border-app-accent"
             }`}
           >
-            <svg
+            <IconFolder
               className={`w-8 h-8 transition-colors ${isDragging ? "text-app-accent" : "text-app-muted group-hover:text-app-accent"}`}
-              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            />
+            <span
+              className={`font-medium transition-colors ${isDragging ? "text-app-accent" : "text-app-text"}`}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-            </svg>
-            <span className={`font-medium transition-colors ${isDragging ? "text-app-accent" : "text-app-text"}`}>
-              {isDragging ? "Drop to open" : t.home.openFolder}
+              {isDragging ? t.home.dropToOpen : t.home.openFolder}
             </span>
-            <span className="text-app-muted text-sm">{t.home.openFolderHint}</span>
+            <span className="text-app-muted text-sm">
+              {t.home.openFolderHint}
+            </span>
           </button>
 
           {recentRepos.length > 0 && (
             <div className="mt-8">
-              <h3 className="text-app-muted text-xs uppercase tracking-wider mb-3">{t.home.recent}</h3>
+              <h3 className="text-app-muted text-xs uppercase tracking-wider mb-3">
+                {t.home.recent}
+              </h3>
               <div className="space-y-1">
                 {recentRepos.map((r) => (
                   <div key={r.localPath} className="flex items-center gap-1">
@@ -213,20 +267,24 @@ export default function HomeView() {
                       className="flex-1 flex items-center gap-3 px-3 py-2.5 bg-app-surface hover:bg-app-surface-2 border border-app-border rounded-md text-left transition-colors min-w-0"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="text-app-text text-sm font-medium">{r.owner}/{r.repo}</div>
-                        <div className="text-app-muted text-xs truncate font-mono">{r.localPath}</div>
+                        <div className="text-app-text text-sm font-medium">
+                          {r.owner}/{r.repo}
+                        </div>
+                        <div className="text-app-muted text-xs truncate font-mono">
+                          {r.localPath}
+                        </div>
                       </div>
-                      <svg className="w-4 h-4 text-app-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                      <IconChevron
+                        direction="right"
+                        className="w-4 h-4 text-app-muted shrink-0"
+                      />
                     </button>
                     <button
                       onClick={() => removeRecentRepo(r.localPath)}
+                      aria-label="Remove from recent"
                       className="p-1.5 text-app-muted hover:text-key-red transition-colors shrink-0"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                      <IconX className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ))}
@@ -244,34 +302,36 @@ export default function HomeView() {
         <div className="text-center space-y-3">
           <div className="w-8 h-8 border-2 border-app-accent border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-app-muted text-sm">{t.home.scanningRepo}</p>
-          <p className="text-app-muted text-xs font-mono truncate max-w-xs">{repoPath ?? lastSession?.repoPath}</p>
+          <p className="text-app-muted text-xs font-mono truncate max-w-xs">
+            {repoPath ?? lastSession?.repoPath}
+          </p>
         </div>
       </div>
     );
   }
 
   // ── Repo loaded ───────────────────────────────────────────────────────────
-  const groupedByLocale: Record<string, TranslationFile[]> = {};
-  for (const f of files) {
-    if (!groupedByLocale[f.locale]) groupedByLocale[f.locale] = [];
-    groupedByLocale[f.locale].push(f);
-  }
-
   return (
     <div className="flex items-start justify-center h-full overflow-y-auto py-10">
       <div className="w-full max-w-2xl px-8">
-
         {/* Repo header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-app-text font-semibold text-lg">
-              {repoInfo ? repoInfo.repo : repoPath?.split("/").pop() ?? repoPath}
+              {repoInfo
+                ? repoInfo.repo
+                : (repoPath?.split("/").pop() ?? repoPath)}
             </h2>
             <p className="text-app-muted text-xs font-mono mt-0.5">
-              {repoInfo ? `${repoInfo.owner}/${repoInfo.repo} · ${repoPath}` : repoPath}
+              {repoInfo
+                ? `${repoInfo.owner}/${repoInfo.repo} · ${repoPath}`
+                : repoPath}
             </p>
           </div>
-          <button onClick={openFolder} className="text-app-muted hover:text-app-text text-xs transition-colors">
+          <button
+            onClick={openFolder}
+            className="text-app-muted hover:text-app-text text-xs transition-colors"
+          >
             {t.home.changeFolder}
           </button>
         </div>
@@ -312,7 +372,10 @@ export default function HomeView() {
               {Object.entries(groupedByLocale).map(([locale, locFiles]) => (
                 <div key={locale}>
                   {locFiles.map((f, i) => (
-                    <div key={f.relativePath} className="flex items-center gap-2 text-sm">
+                    <div
+                      key={f.relativePath}
+                      className="flex items-center gap-2 text-sm"
+                    >
                       <span className="text-app-muted font-mono w-14 shrink-0">
                         {i === 0 ? locale : ""}
                       </span>
@@ -320,7 +383,9 @@ export default function HomeView() {
                         {f.relativePath}
                       </span>
                       <span className="text-app-muted text-xs shrink-0">
-                        {f.keyCount > 0 ? interp(t.home.keys, { n: f.keyCount }) : t.home.countingKeys}
+                        {f.keyCount > 0
+                          ? interp(t.home.keys, { n: f.keyCount })
+                          : t.home.countingKeys}
                       </span>
                     </div>
                   ))}
@@ -337,7 +402,7 @@ export default function HomeView() {
               <label className="block text-app-muted text-xs uppercase tracking-wider mb-1.5">
                 {t.home.translateFrom}
               </label>
-              {[...new Set(files.map((f) => f.locale))].length === 1 ? (
+              {allLocales.length === 1 ? (
                 <div className="flex items-center gap-2">
                   <span className="bg-app-surface-2 border border-app-border rounded px-3 py-1.5 text-app-text text-sm font-mono">
                     {sourceFile?.locale ?? "—"}
@@ -355,9 +420,11 @@ export default function HomeView() {
                   }}
                   className="w-full bg-app-surface border border-app-border rounded-md px-3 py-2 text-app-text text-sm focus:outline-none focus:border-app-accent transition-colors"
                 >
-                  {[...new Set(files.map((f) => f.locale))].map((locale) => (
+                  {allLocales.map((locale) => (
                     <option key={locale} value={locale}>
-                      {localeName(locale)} ({locale}) — {files.find((f) => f.locale === locale)?.keyCount ?? 0} keys
+                      {localeName(locale)} ({locale}) —{" "}
+                      {files.find((f) => f.locale === locale)?.keyCount ?? 0}{" "}
+                      keys
                     </option>
                   ))}
                 </select>
@@ -415,13 +482,14 @@ export default function HomeView() {
   );
 }
 
+// ─── ForkOverride ─────────────────────────────────────────────────────────────
+
 function ForkOverride() {
   const { repoInfo, setRepoInfo } = useRepoStore();
   const t = useT();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
 
-  // Not a fork — nothing to show
   if (!repoInfo || !isForkedRepo(repoInfo)) return null;
 
   const { upstreamOwner, upstreamRepo } = repoInfo;
@@ -441,7 +509,12 @@ function ForkOverride() {
         <button
           onClick={() => {
             const [owner, repo] = value.split("/");
-            if (owner && repo) setRepoInfo({ upstreamOwner: owner, upstreamRepo: repo, isForked: true });
+            if (owner && repo)
+              setRepoInfo({
+                upstreamOwner: owner,
+                upstreamRepo: repo,
+                isForked: true,
+              });
             setEditing(false);
           }}
           className="text-xs text-app-accent hover:underline"
@@ -452,7 +525,7 @@ function ForkOverride() {
           onClick={() => setEditing(false)}
           className="text-xs text-app-muted hover:text-app-text"
         >
-          {t.editor.confirmPRCancel}
+          {t.settings.cancel}
         </button>
       </div>
     );
@@ -471,13 +544,14 @@ function ForkOverride() {
         {t.home.forkDetected}
       </span>
       <button
-        onClick={() => { setValue(`${upstreamOwner}/${upstreamRepo}`); setEditing(true); }}
-        title={t.home.change}
+        onClick={() => {
+          setValue(`${upstreamOwner}/${upstreamRepo}`);
+          setEditing(true);
+        }}
+        aria-label={t.home.change}
         className="text-app-muted hover:text-app-text transition-colors p-0.5 rounded shrink-0"
       >
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-        </svg>
+        <IconPencil className="w-3 h-3" />
       </button>
     </div>
   );

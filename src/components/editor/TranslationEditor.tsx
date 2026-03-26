@@ -1,12 +1,31 @@
 import { useEditorStore } from "../../stores/editorStore";
+import { useRepoStore } from "../../stores/repoStore";
 import { useT, interp } from "../../i18n";
 import SourceSection from "./SourceSection";
 import TranslationInput from "./TranslationInput";
 import ProposalsSection from "./ProposalsSection";
 
 export default function TranslationEditor() {
-  const { selectedKey, keys, selectedIndex, targetLocale, sourceFile } = useEditorStore();
+  const {
+    selectedKey,
+    keys,
+    selectedIndex,
+    targetLocale,
+    sourceFile,
+    secondaryLocale,
+    secondaryTranslations,
+    setSecondaryLocale,
+  } = useEditorStore();
+  const { files } = useRepoStore();
   const t = useT();
+
+  const availableLocales = [...new Set(files.map((f) => f.locale))].filter(
+    (l) => l !== sourceFile?.locale && l !== targetLocale,
+  );
+  const secondarySource =
+    selectedKey && secondaryTranslations
+      ? (secondaryTranslations[selectedKey.key] ?? null)
+      : null;
 
   return (
     <div className="flex flex-col h-full">
@@ -24,7 +43,12 @@ export default function TranslationEditor() {
           {sourceFile?.relativePath.split("/").pop() ?? "—"}
         </span>
         <span className="text-app-muted text-xs shrink-0">
-          {keys.length > 0 ? interp(t.editor.position, { current: selectedIndex + 1, total: keys.length }) : "—"}
+          {keys.length > 0
+            ? interp(t.editor.position, {
+                current: selectedIndex + 1,
+                total: keys.length,
+              })
+            : "—"}
         </span>
       </div>
 
@@ -32,7 +56,15 @@ export default function TranslationEditor() {
       <div className="flex-1 overflow-y-auto">
         {selectedKey ? (
           <>
-            <SourceSection source={selectedKey.source} context={selectedKey.context} />
+            <SourceSection
+              source={selectedKey.source}
+              context={selectedKey.context}
+              keyName={selectedKey.key}
+              secondaryLocale={secondaryLocale}
+              secondarySource={secondarySource}
+              availableLocales={availableLocales}
+              onSetSecondaryLocale={setSecondaryLocale}
+            />
             <TranslationInput key={selectedKey.key} />
             <ProposalsSection proposals={selectedKey.proposals} />
           </>

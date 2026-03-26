@@ -6,6 +6,14 @@ import { useAuthStore } from "../../stores/authStore";
 import { useRepoStore } from "../../stores/repoStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useT } from "../../i18n";
+import { useUpdateCheck } from "../../hooks/useUpdateCheck";
+import {
+  IconGear,
+  IconWindowMinimize,
+  IconWindowRestore,
+  IconWindowMaximize,
+  IconWindowClose,
+} from "../Icons";
 import HomeView from "../../views/HomeView";
 import EditorView from "../../views/EditorView";
 import ReviewView from "../../views/ReviewView";
@@ -23,11 +31,13 @@ export default function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const t = useT();
+  const { updateAvailable, updateVersion, isInstalling, installAndRelaunch } =
+    useUpdateCheck();
 
   const handleNav = useCallback(
     async (target: "home" | "editor" | "review") => {
       if (isDirty && view === "editor" && target !== "editor") {
-        const ok = await confirm("You have unsaved changes. Leave anyway?", {
+        const ok = await confirm(t.app.unsavedChangesPrompt, {
           title: "Lingoa",
           kind: "warning",
         });
@@ -36,7 +46,7 @@ export default function AppShell() {
       setSettingsOpen(false);
       setView(target);
     },
-    [isDirty, view, setView]
+    [isDirty, view, setView],
   );
 
   useEffect(() => {
@@ -72,6 +82,19 @@ export default function AppShell() {
 
         <div className="flex-1" />
 
+        {/* Update indicator — appears when a new version is available */}
+        {updateAvailable && (
+          <button
+            onClick={installAndRelaunch}
+            disabled={isInstalling}
+            title={`${t.update.tooltip}${updateVersion ? ` (${updateVersion})` : ""}`}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-app-accent/15 text-app-accent hover:bg-app-accent/25 transition-colors disabled:opacity-60 disabled:cursor-wait"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-app-accent animate-pulse shrink-0" />
+            {isInstalling ? t.update.installing : t.update.available}
+          </button>
+        )}
+
         {/* View tabs — always visible once past token-setup */}
         {view !== "token-setup" && (
           <nav className="flex gap-1">
@@ -93,22 +116,26 @@ export default function AppShell() {
                 view === "editor"
                   ? "bg-app-accent text-white"
                   : editorReady
-                  ? "text-app-muted hover:text-app-text hover:bg-app-surface-2"
-                  : "text-app-muted/40 cursor-not-allowed"
+                    ? "text-app-muted hover:text-app-text hover:bg-app-surface-2"
+                    : "text-app-muted/40 cursor-not-allowed"
               }`}
             >
               {t.nav.editor}
             </button>
             <button
-              onClick={() => (repoInfo && currentUser) ? handleNav("review") : undefined}
+              onClick={() =>
+                repoInfo && currentUser ? handleNav("review") : undefined
+              }
               disabled={!repoInfo || !currentUser}
-              title={(!repoInfo || !currentUser) ? t.nav.reviewDisabledHint : undefined}
+              title={
+                !repoInfo || !currentUser ? t.nav.reviewDisabledHint : undefined
+              }
               className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                 view === "review"
                   ? "bg-app-accent text-white"
-                  : (repoInfo && currentUser)
-                  ? "text-app-muted hover:text-app-text hover:bg-app-surface-2"
-                  : "text-app-muted/40 cursor-not-allowed"
+                  : repoInfo && currentUser
+                    ? "text-app-muted hover:text-app-text hover:bg-app-surface-2"
+                    : "text-app-muted/40 cursor-not-allowed"
               }`}
             >
               {t.nav.review}
@@ -121,28 +148,10 @@ export default function AppShell() {
           {/* Settings gear */}
           <button
             onClick={() => setSettingsOpen((v) => !v)}
-            title="Settings"
+            title={t.settings.title}
             className="p-1 text-app-muted hover:text-app-text transition-colors rounded"
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.75}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.75}
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
+            <IconGear className="w-4 h-4" />
           </button>
         </div>
 
@@ -150,97 +159,28 @@ export default function AppShell() {
         <div className="flex items-stretch h-full -mr-4 ml-2">
           <button
             onClick={() => getCurrentWindow().minimize()}
-            title="Minimize"
+            title={t.window.minimize}
             className="flex items-center justify-center w-11 h-full text-app-muted hover:text-app-text hover:bg-app-surface-2 transition-colors"
           >
-            {/* Filled rect — no stroke needed, crispEdges for pixel-perfect horizontal line */}
-            <svg
-              className="w-3 h-2"
-              viewBox="0 0 10 1"
-              fill="currentColor"
-              shapeRendering="crispEdges"
-            >
-              <rect width="10" height="1" />
-            </svg>
+            <IconWindowMinimize className="w-3 h-2" />
           </button>
           <button
             onClick={() => getCurrentWindow().toggleMaximize()}
-            title={isMaximized ? "Restore" : "Maximize"}
+            title={isMaximized ? t.window.restore : t.window.maximize}
             className="flex items-center justify-center w-11 h-full text-app-muted hover:text-app-text hover:bg-app-surface-2 transition-colors"
           >
             {isMaximized ? (
-              /* Restore: offset coords by 0.5 so 1px stroke sits on pixel boundary */
-              <svg
-                className="w-3 h-3"
-                viewBox="0 0 10 10"
-                fill="none"
-                stroke="currentColor"
-                shapeRendering="crispEdges"
-              >
-                <rect
-                  x="2.5"
-                  y="0.5"
-                  width="7"
-                  height="7"
-                  strokeWidth="1"
-                  vectorEffect="non-scaling-stroke"
-                />
-                <path
-                  d="M0.5 2.5 L0.5 9.5 L7.5 9.5"
-                  strokeWidth="1"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
+              <IconWindowRestore className="w-3 h-3" />
             ) : (
-              <svg
-                className="w-3 h-3"
-                viewBox="0 0 10 10"
-                fill="none"
-                stroke="currentColor"
-                shapeRendering="crispEdges"
-              >
-                <rect
-                  x="0.5"
-                  y="0.5"
-                  width="9"
-                  height="9"
-                  strokeWidth="1"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
+              <IconWindowMaximize className="w-3 h-3" />
             )}
           </button>
           <button
             onClick={() => getCurrentWindow().close()}
-            title="Close"
+            title={t.window.close}
             className="flex items-center justify-center w-11 h-full text-app-muted hover:text-white hover:bg-red-500 transition-colors"
           >
-            {/* Diagonal lines — geometricPrecision keeps antialiasing for smooth diagonals */}
-            <svg
-              className="w-3 h-3"
-              viewBox="0 0 10 10"
-              fill="none"
-              stroke="currentColor"
-              shapeRendering="geometricPrecision"
-              strokeLinecap="round"
-            >
-              <line
-                x1="1"
-                y1="1"
-                x2="9"
-                y2="9"
-                strokeWidth="1.2"
-                vectorEffect="non-scaling-stroke"
-              />
-              <line
-                x1="9"
-                y1="1"
-                x2="1"
-                y2="9"
-                strokeWidth="1.2"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
+            <IconWindowClose className="w-3 h-3" />
           </button>
         </div>
       </header>

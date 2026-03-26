@@ -16,21 +16,23 @@ export interface ThemeDefinition {
 }
 
 export const THEME_REGISTRY: ThemeDefinition[] = [
-  { id: "dark",            label: "Dark",      icon: "🌙" },
-  { id: "light",           label: "Light",     icon: "☀️" },
+  { id: "dark", label: "Dark", icon: "🌙" },
+  { id: "light", label: "Light", icon: "☀️" },
   { id: "solarized-light", label: "Solarized", icon: "📄" },
-  { id: "system",          label: "System",    icon: "💻" },
+  { id: "system", label: "System", icon: "💻" },
 ];
 
 interface SettingsState {
   theme: Theme;
   language: Language;
   spellCheckDefault: boolean;
+  prTipEnabled: boolean;
 
   loadSettings: () => void;
   setTheme: (theme: Theme) => void;
   setLanguage: (lang: Language) => void;
   setSpellCheckDefault: (v: boolean) => void;
+  setPrTipEnabled: (v: boolean) => void;
 }
 
 const STORAGE_KEY = "lingoa:settings";
@@ -56,7 +58,10 @@ export function applyTheme(theme: Theme) {
     document.documentElement.setAttribute("data-theme", effective);
     _mql = window.matchMedia("(prefers-color-scheme: dark)");
     _mqlListener = () => {
-      document.documentElement.setAttribute("data-theme", _mql!.matches ? "dark" : "light");
+      document.documentElement.setAttribute(
+        "data-theme",
+        _mql!.matches ? "dark" : "light",
+      );
     };
     _mql.addEventListener("change", _mqlListener);
   } else {
@@ -64,16 +69,28 @@ export function applyTheme(theme: Theme) {
   }
 }
 
-function load(): Partial<Pick<SettingsState, "theme" | "language" | "spellCheckDefault">> {
+function load(): Partial<
+  Pick<
+    SettingsState,
+    "theme" | "language" | "spellCheckDefault" | "prTipEnabled"
+  >
+> {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     if (typeof raw !== "object" || raw === null) return {};
     const r = raw as Record<string, unknown>;
     // Only accept known primitive keys — never let stored data overwrite store methods.
-    const safe: Partial<Pick<SettingsState, "theme" | "language" | "spellCheckDefault">> = {};
+    const safe: Partial<
+      Pick<
+        SettingsState,
+        "theme" | "language" | "spellCheckDefault" | "prTipEnabled"
+      >
+    > = {};
     if (typeof r.theme === "string") safe.theme = r.theme as Theme;
     if (typeof r.language === "string") safe.language = r.language as Language;
-    if (typeof r.spellCheckDefault === "boolean") safe.spellCheckDefault = r.spellCheckDefault;
+    if (typeof r.spellCheckDefault === "boolean")
+      safe.spellCheckDefault = r.spellCheckDefault;
+    if (typeof r.prTipEnabled === "boolean") safe.prTipEnabled = r.prTipEnabled;
     return safe;
   } catch {
     return {};
@@ -81,14 +98,18 @@ function load(): Partial<Pick<SettingsState, "theme" | "language" | "spellCheckD
 }
 
 function save(state: SettingsState) {
-  const { theme, language, spellCheckDefault } = state;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme, language, spellCheckDefault }));
+  const { theme, language, spellCheckDefault, prTipEnabled } = state;
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ theme, language, spellCheckDefault, prTipEnabled }),
+  );
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   theme: "dark",
   language: "en",
   spellCheckDefault: false,
+  prTipEnabled: true,
 
   loadSettings: () => {
     const saved = load();
@@ -111,5 +132,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSpellCheckDefault: (spellCheckDefault) => {
     set({ spellCheckDefault });
     save({ ...get(), spellCheckDefault });
+  },
+
+  setPrTipEnabled: (prTipEnabled) => {
+    set({ prTipEnabled });
+    save({ ...get(), prTipEnabled });
   },
 }));

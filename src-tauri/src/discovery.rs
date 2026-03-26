@@ -35,14 +35,14 @@ fn filename_patterns() -> &'static [Regex] {
     static P: OnceLock<Vec<Regex>> = OnceLock::new();
     P.get_or_init(|| {
         vec![
-            // en.json, en-US.yaml
-            Regex::new(r"(?i)^([a-z]{2}(?:[_-][A-Z]{2})?)\.(?:json|ya?ml)$").unwrap(),
+            // en.json, en-US.yaml  — (?i:...) scopes case-insensitivity to the extension only
+            Regex::new(r"^([a-z]{2}(?:[_-][A-Z]{2})?)\.(?i:json|ya?ml)$").unwrap(),
             // messages.fr.json, messages_fr.yaml
-            Regex::new(r"(?i)^messages[._-]([a-z]{2}(?:[_-][A-Z]{2})?)\.(?:json|ya?ml)$").unwrap(),
+            Regex::new(r"^messages[._-]([a-z]{2}(?:[_-][A-Z]{2})?)\.(?i:json|ya?ml)$").unwrap(),
             // strings_de.json
-            Regex::new(r"(?i)^strings[._-]([a-z]{2}(?:[_-][A-Z]{2})?)\.(?:json|ya?ml)$").unwrap(),
+            Regex::new(r"^strings[._-]([a-z]{2}(?:[_-][A-Z]{2})?)\.(?i:json|ya?ml)$").unwrap(),
             // translation-ja.json
-            Regex::new(r"(?i)^translation[._-]([a-z]{2}(?:[_-][A-Z]{2})?)\.(?:json|ya?ml)$").unwrap(),
+            Regex::new(r"^translation[._-]([a-z]{2}(?:[_-][A-Z]{2})?)\.(?i:json|ya?ml)$").unwrap(),
         ]
     })
 }

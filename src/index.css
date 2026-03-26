@@ -37,13 +37,13 @@
 /* ── Solarized Light theme ────────────────────────────────────────────────── */
 /* Palette: Ethan Schoonover's Solarized — warm cream paper tones             */
 [data-theme="solarized-light"] {
-  --color-app-base: #fdf6e3;    /* Base3  — paper */
+  --color-app-base: #fdf6e3; /* Base3  — paper */
   --color-app-surface: #eee8d5; /* Base2  — card */
   --color-app-surface-2: #e4dece; /* Base2- — input / hover */
-  --color-app-border: #c9c3b0;  /* slightly darker border for visibility */
-  --color-app-text: #073642;    /* Base02 — deep teal, ~15:1 on Base3 */
-  --color-app-muted: #586e75;   /* Base01 — ~4.7:1 on Base3 */
-  --color-app-accent: #268bd2;  /* Blue */
+  --color-app-border: #c9c3b0; /* slightly darker border for visibility */
+  --color-app-text: #073642; /* Base02 — deep teal, ~15:1 on Base3 */
+  --color-app-muted: #586e75; /* Base01 — ~4.7:1 on Base3 */
+  --color-app-accent: #268bd2; /* Blue */
   --color-app-accent-hover: #1a7ab8;
 
   --color-key-green: #859900;

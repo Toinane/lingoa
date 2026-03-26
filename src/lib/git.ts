@@ -5,7 +5,7 @@ export async function getRemoteUrl(repoPath: string): Promise<string | null> {
 }
 
 export function parseGithubUrl(
-  url: string
+  url: string,
 ): { owner: string; repo: string } | null {
   // Also handles SSH aliases like git@github.com-work:owner/repo.git
   const match = url.match(/github\.com[^/:]*[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/);
@@ -38,7 +38,7 @@ export async function ensureBranchAndPush(
   repoPath: string,
   branchName: string,
   relativeFilePath: string,
-  commitMessage: string
+  commitMessage: string,
 ): Promise<void> {
   const exists = await tauriGit.branchExists(repoPath, branchName);
   if (exists) {
@@ -72,13 +72,17 @@ export async function ensureBranchAndPush(
 export function deriveTargetPath(
   sourcePath: string,
   sourceLocale: string,
-  targetLocale: string
+  targetLocale: string,
 ): string {
   const parts = sourcePath.split("/");
 
   // 1. Try filename substitution first
   const filename = parts[parts.length - 1];
-  const newFilename = replaceLocaleInSegment(filename, sourceLocale, targetLocale);
+  const newFilename = replaceLocaleInSegment(
+    filename,
+    sourceLocale,
+    targetLocale,
+  );
   if (newFilename !== filename) {
     return [...parts.slice(0, -1), newFilename].join("/");
   }
@@ -86,7 +90,9 @@ export function deriveTargetPath(
   // 2. Walk inward from the deepest directory — prefer the nearest locale component
   for (let i = parts.length - 2; i >= 0; i--) {
     if (parts[i] === sourceLocale) {
-      return [...parts.slice(0, i), targetLocale, ...parts.slice(i + 1)].join("/");
+      return [...parts.slice(0, i), targetLocale, ...parts.slice(i + 1)].join(
+        "/",
+      );
     }
   }
 
@@ -99,11 +105,11 @@ export function deriveTargetPath(
 function replaceLocaleInSegment(
   segment: string,
   sourceLocale: string,
-  targetLocale: string
+  targetLocale: string,
 ): string {
   const escaped = sourceLocale.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return segment.replace(
     new RegExp(`(^|[._-])${escaped}([._-]|$)`),
-    `$1${targetLocale}$2`
+    `$1${targetLocale}$2`,
   );
 }
